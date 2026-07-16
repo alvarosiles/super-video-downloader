@@ -1,3 +1,14 @@
+toma en cuenta que  la extnsion
+deberia ser 
+https://github.com/alvarosiles/super-video-downloader
+nombre d ela extension
+super-video-downloader
+
+Super Video Downloader is a modern browser extension built with Manifest V3 that detects downloadable media on supported websites and provides a simple interface to save available video files.
+
+y mi github es https://github.com/alvarosiles
+mi corrreo es alvarosiles.developer@gmai.com
+
 Actúa como un desarrollador Senior especializado en Google Chrome Extensions (Manifest V3), JavaScript, HTML, CSS y APIs modernas del navegador.
 
 Quiero crear una extensión profesional llamada **Super Video Downloader**.

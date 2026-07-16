@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Super Video Downloader</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="app">
+
+    <header class="app__header">
+      <div class="app__brand">
+        <span class="icon icon--brand" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false">
+            <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+          </svg>
+        </span>
+        <h1 class="app__title" data-i18n="appName">Super Video Downloader</h1>
+      </div>
+      <div class="app__actions">
+        <button id="refreshBtn" class="icon-btn" type="button" title="Refresh">
+          <svg viewBox="0 0 24 24" focusable="false"><path d="M12 5V2L8 6l4 4V7c3.31 0 6 2.69 6 6 0 2.97-2.16 5.44-5 5.92v2.02c3.95-.49 7-3.85 7-7.94 0-4.42-3.58-8-8-8zm-6 8c0-1.65.67-3.15 1.76-4.24L6.34 7.34C4.9 8.79 4 10.79 4 13c0 4.08 3.05 7.44 7 7.93v-2.02c-2.84-.48-5-2.94-5-5.91z"/></svg>
+        </button>
+        <button id="settingsBtn" class="icon-btn" type="button" title="Settings">
+          <svg viewBox="0 0 24 24" focusable="false"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.5.5 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.5.5 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <section class="card site-card" id="siteCard">
+      <img id="siteFavicon" class="site-card__favicon" alt="" width="24" height="24" />
+      <div class="site-card__info">
+        <p class="site-card__label" data-i18n="currentSite">Sitio actual</p>
+        <p id="siteDomain" class="site-card__domain">—</p>
+      </div>
+      <span id="countBadge" class="badge">0</span>
+    </section>
+
+    <section id="videoList" class="video-list" aria-live="polite"></section>
+
+    <p id="emptyState" class="empty-state hidden" data-i18n="emptyState">
+      No se detectaron videos descargables en este sitio.
+    </p>
+
+    <footer class="app__footer">
+      <span id="statusMessage" class="app__status"></span>
+    </footer>
+  </div>
+
+  <template id="videoItemTemplate">
+    <article class="video-item">
+      <div class="video-item__info">
+        <p class="video-item__name"></p>
+        <p class="video-item__meta"></p>
+      </div>
+      <div class="video-item__actions">
+        <button class="btn btn--copy" type="button" data-i18n="copyUrl">Copy URL</button>
+        <button class="btn btn--download" type="button" data-i18n="download">Download</button>
+      </div>
+    </article>
+  </template>
+
+  <script src="../scripts/utils.js"></script>
+  <script src="../scripts/storage.js"></script>
+  <script src="../scripts/downloader.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

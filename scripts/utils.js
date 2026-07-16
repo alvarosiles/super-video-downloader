@@ -1,0 +1,234 @@
+/**
+ * scripts/utils.js — Super Video Downloader
+ * ─────────────────────────────────────────────────────────────────────────
+ * Funciones puras compartidas por TODOS los contextos de la extensión
+ * (content script, popup, options, background). Se carga como script
+ * clásico (sin módulos ES) en cada uno de ellos:
+ *
+ *   - content_scripts (manifest.json): <script src="scripts/utils.js">
+ *   - popup/popup.html y options/options.html: <script src="../scripts/utils.js">
+ *   - background.js (service worker): importScripts('scripts/utils.js')
+ *
+ * Así evitamos duplicar lógica sin necesitar un bundler ni módulos ES en
+ * los content scripts (que en Manifest V3 no los soportan de forma nativa
+ * para archivos declarados en "js"). Todo queda expuesto bajo el único
+ * namespace global `SVDUtils` para no ensuciar `window`/`self`.
+ */
+
+(function (root) {
+  'use strict';
+
+  const MIME_BY_EXT = {
+    mp4: 'video/mp4',
+    m4v: 'video/mp4',
+    webm: 'video/webm',
+    ogg: 'video/ogg',
+    ogv: 'video/ogg',
+    mov: 'video/quicktime',
+    avi: 'video/x-msvideo',
+    mkv: 'video/x-matroska',
+    '3gp': 'video/3gpp',
+  };
+
+  const EXT_BY_MIME = Object.entries(MIME_BY_EXT).reduce((acc, [ext, mime]) => {
+    if (!acc[mime]) acc[mime] = ext;
+    return acc;
+  }, {});
+
+  /** "1234567" -> "1.18 MB". Devuelve `null` si no hay dato (el llamador decide el texto). */
+  function formatBytes(bytes) {
+    if (!bytes || bytes <= 0 || !isFinite(bytes)) return null;
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let value = bytes;
+    let unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex += 1;
+    }
+    const decimals = unitIndex === 0 ? 0 : 1;
+    return `${value.toFixed(decimals)} ${units[unitIndex]}`;
+  }
+
+  /** 125 -> "02:05". 3725 -> "1:02:05". */
+  function formatDuration(seconds) {
+    if (!seconds || !isFinite(seconds) || seconds <= 0) return null;
+    const total = Math.round(seconds);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    const mm = String(m).padStart(2, '0');
+    const ss = String(s).padStart(2, '0');
+    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+  }
+
+  function extFromUrl(url) {
+    try {
+      const pathname = new URL(url, location.href).pathname;
+      const match = pathname.match(/\.([a-zA-Z0-9]{2,4})$/);
+      return match ? match[1].toLowerCase() : '';
+    } catch (_err) {
+      return '';
+    }
+  }
+
+  function guessMimeFromUrl(url) {
+    const ext = extFromUrl(url);
+    return MIME_BY_EXT[ext] || '';
+  }
+
+  function extFromMime(mime) {
+    if (!mime) return '';
+    return EXT_BY_MIME[mime.split(';')[0].trim()] || '';
+  }
+
+  function sanitizeFilename(name) {
+    return String(name)
+      .replace(/[\\/:*?"<>|]+/g, '_')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 150);
+  }
+
+  /** Deriva un nombre de archivo razonable a partir de la URL del video y, si hace falta, del título de la página. */
+  function filenameFromUrl(url, fallbackBase, mime) {
+    let base = '';
+    try {
+      const pathname = new URL(url, location.href).pathname;
+      base = decodeURIComponent(pathname.split('/').pop() || '');
+    } catch (_err) {
+      base = '';
+    }
+
+    const ext = extFromUrl(url) || extFromMime(mime) || 'mp4';
+    base = base.replace(/\.[a-zA-Z0-9]{2,4}$/, '');
+
+    if (!base) base = sanitizeFilename(fallbackBase || 'video');
+    else base = sanitizeFilename(base);
+
+    return `${base}.${ext}`;
+  }
+
+  function debounce(fn, wait) {
+    let timer = null;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), wait);
+    };
+  }
+
+  // ── i18n ────────────────────────────────────────────────────────────────
+  // Diccionario mínimo (es/en) para los textos de popup y options. Los
+  // elementos marcan su clave de traducción con data-i18n="clave" (para
+  // textContent) o data-i18n-placeholder="clave" (para el placeholder).
+  const STRINGS = {
+    es: {
+      appName: 'Super Video Downloader',
+      currentSite: 'Sitio actual',
+      videosFound_one: '{n} video detectado',
+      videosFound_other: '{n} videos detectados',
+      videosFound_zero: 'Sin videos detectados',
+      emptyState: 'No se detectaron videos descargables en este sitio.',
+      refresh: 'Refresh',
+      settings: 'Settings',
+      download: 'Download',
+      copyUrl: 'Copy URL',
+      copied: 'URL copiada',
+      unknown: 'Desconocido',
+      notDownloadable: 'No disponible para descarga directa',
+      optionsTitle: 'Configuración',
+      sectionDownloads: 'Descargas',
+      downloadFolder: 'Subcarpeta de descarga (dentro de Descargas)',
+      downloadFolderHint:
+        'Chrome no permite elegir una carpeta absoluta del sistema desde una extensión; los archivos se guardan dentro de tu carpeta de Descargas, en esta subcarpeta.',
+      autoName: 'Nombre automático',
+      autoNameHint: 'Si lo desactivas, el navegador te preguntará dónde guardar cada archivo.',
+      showNotifications: 'Mostrar notificaciones',
+      theme: 'Tema',
+      themeDark: 'Oscuro',
+      themeLight: 'Claro',
+      language: 'Idioma',
+      autoRefresh: 'Actualización automática de la lista',
+      autoRefreshHint: 'Vuelve a detectar videos cuando la página cambia (sitios de una sola página).',
+      sectionHistory: 'Historial',
+      clearHistory: 'Borrar historial',
+      historyEmpty: 'Todavía no hay descargas registradas.',
+      save: 'Guardar',
+      saved: 'Guardado',
+    },
+    en: {
+      appName: 'Super Video Downloader',
+      currentSite: 'Current site',
+      videosFound_one: '{n} video detected',
+      videosFound_other: '{n} videos detected',
+      videosFound_zero: 'No videos detected',
+      emptyState: 'No downloadable videos were detected on this site.',
+      refresh: 'Refresh',
+      settings: 'Settings',
+      download: 'Download',
+      copyUrl: 'Copy URL',
+      copied: 'URL copied',
+      unknown: 'Unknown',
+      notDownloadable: 'Not directly downloadable',
+      optionsTitle: 'Settings',
+      sectionDownloads: 'Downloads',
+      downloadFolder: 'Download subfolder (inside Downloads)',
+      downloadFolderHint:
+        "Chrome doesn't allow extensions to pick an absolute system folder; files are saved inside your Downloads folder, under this subfolder.",
+      autoName: 'Automatic filename',
+      autoNameHint: 'If disabled, the browser will ask where to save each file.',
+      showNotifications: 'Show notifications',
+      theme: 'Theme',
+      themeDark: 'Dark',
+      themeLight: 'Light',
+      language: 'Language',
+      autoRefresh: 'Auto-refresh the list',
+      autoRefreshHint: 'Re-scan for videos when the page changes (single-page sites).',
+      sectionHistory: 'History',
+      clearHistory: 'Clear history',
+      historyEmpty: 'No downloads recorded yet.',
+      save: 'Save',
+      saved: 'Saved',
+    },
+  };
+
+  function t(lang, key, vars) {
+    const dict = STRINGS[lang] || STRINGS.es;
+    let str = dict[key] ?? STRINGS.es[key] ?? key;
+    if (vars) {
+      for (const [k, v] of Object.entries(vars)) {
+        str = str.replace(`{${k}}`, v);
+      }
+    }
+    return str;
+  }
+
+  function pluralKey(base, count) {
+    if (count === 0) return `${base}_zero`;
+    if (count === 1) return `${base}_one`;
+    return `${base}_other`;
+  }
+
+  /** Aplica las traducciones a todo el árbol `root` según data-i18n[-placeholder]. */
+  function applyTranslations(root, lang) {
+    root.querySelectorAll('[data-i18n]').forEach((el) => {
+      el.textContent = t(lang, el.getAttribute('data-i18n'));
+    });
+    root.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
+      el.setAttribute('placeholder', t(lang, el.getAttribute('data-i18n-placeholder')));
+    });
+  }
+
+  root.SVDUtils = {
+    formatBytes,
+    formatDuration,
+    guessMimeFromUrl,
+    extFromMime,
+    extFromUrl,
+    sanitizeFilename,
+    filenameFromUrl,
+    debounce,
+    t,
+    pluralKey,
+    applyTranslations,
+  };
+})(typeof window !== 'undefined' ? window : self);

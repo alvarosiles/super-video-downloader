@@ -49,6 +49,7 @@
     const parts = [];
     if (video.mime) parts.push(video.mime.replace('video/', '').toUpperCase());
     if (video.width && video.height) parts.push(`${video.width}×${video.height}`);
+    else if (video.qualityLabel) parts.push(video.qualityLabel);
     const duration = formatDuration(video.duration);
     if (duration) parts.push(duration);
     const size = formatBytes(video.sizeBytes);

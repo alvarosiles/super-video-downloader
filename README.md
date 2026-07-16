@@ -49,8 +49,11 @@ externos, sin servidores intermediarios, sin dependencias.
 
 - Detecta automáticamente `<video>`/`<source>`, incluidos los que aparecen
   después de cargar la página (sitios de una sola página).
-- Cada video detectado muestra: nombre, formato, resolución, tamaño y
-  duración (los que estén disponibles).
+- Si el sitio ofrece varias calidades — como `<source>` adicionales dentro
+  del reproductor o enlaces de descarga tipo "480p / 720p / 1080p" fuera de
+  él — se listan todas por separado, no solo la que está reproduciéndose.
+- Cada video detectado muestra: nombre, formato, resolución o calidad,
+  tamaño y duración (los que estén disponibles).
 - Descarga con un clic (`chrome.downloads`) o copia la URL directa.
 - Badge del icono con el número de videos detectados en la pestaña.
 - Página de **Opciones**: subcarpeta de descarga, nombre automático (o

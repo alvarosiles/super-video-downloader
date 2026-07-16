@@ -36,6 +36,11 @@
       <span id="countBadge" class="badge">0</span>
     </section>
 
+    <p id="protectedNotice" class="protected-notice hidden" data-i18n="protectedNotice">
+      Este sitio usa streaming protegido para algunos videos: se detectan,
+      pero no se pueden descargar directamente.
+    </p>
+
     <section id="videoList" class="video-list" aria-live="polite"></section>
 
     <p id="emptyState" class="empty-state hidden" data-i18n="emptyState">
@@ -50,7 +55,13 @@
   <template id="videoItemTemplate">
     <article class="video-item">
       <div class="video-item__info">
-        <p class="video-item__name"></p>
+        <div class="video-item__title-row">
+          <p class="video-item__name"></p>
+          <span class="protected-badge hidden">
+            <svg viewBox="0 0 24 24" focusable="false"><path d="M12 17a2 2 0 002-2 2 2 0 00-2-2 2 2 0 00-2 2 2 2 0 002 2zm6-9h-1V6a5 5 0 00-10 0v2H6a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V10a2 2 0 00-2-2zM8.9 6c0-1.71 1.39-3.1 3.1-3.1S15.1 4.29 15.1 6v2H8.9V6z"/></svg>
+            <span class="protected-badge__text">No disponible para descarga directa</span>
+          </span>
+        </div>
         <p class="video-item__meta"></p>
       </div>
       <div class="video-item__actions">

@@ -9,7 +9,7 @@
 (() => {
   'use strict';
 
-  const { formatBytes, formatDuration, t, pluralKey, applyTranslations } = window.SVDUtils;
+  const { formatBytes, formatDuration, t, applyTranslations } = window.SVDUtils;
 
   const els = {
     root: document.documentElement,
@@ -20,6 +20,7 @@
     countBadge: document.getElementById('countBadge'),
     videoList: document.getElementById('videoList'),
     emptyState: document.getElementById('emptyState'),
+    protectedNotice: document.getElementById('protectedNotice'),
     status: document.getElementById('statusMessage'),
     template: document.getElementById('videoItemTemplate'),
   };
@@ -44,6 +45,9 @@
     });
   }
 
+  // Solo datos técnicos aquí: el motivo de "no descargable" ahora tiene su
+  // propia insignia (ver renderVideos) en vez de ir escondido y cortado al
+  // final de esta línea.
   function metaLine(video) {
     const lang = local.settings.language;
     const parts = [];
@@ -52,9 +56,7 @@
     else if (video.qualityLabel) parts.push(video.qualityLabel);
     const duration = formatDuration(video.duration);
     if (duration) parts.push(duration);
-    const size = formatBytes(video.sizeBytes);
-    parts.push(size || t(lang, 'unknown'));
-    if (!video.downloadable) parts.push(t(lang, 'notDownloadable'));
+    if (video.downloadable) parts.push(formatBytes(video.sizeBytes) || t(lang, 'unknown'));
     return parts.join(' · ');
   }
 
@@ -63,6 +65,7 @@
     els.videoList.innerHTML = '';
     els.countBadge.textContent = String(videos.length);
     els.emptyState.classList.toggle('hidden', videos.length > 0);
+    els.protectedNotice.classList.toggle('hidden', !videos.some((v) => !v.downloadable));
 
     for (const video of videos) {
       const node = els.template.content.firstElementChild.cloneNode(true);
@@ -70,11 +73,16 @@
       node.querySelector('.video-item__name').textContent = video.filename;
       node.querySelector('.video-item__meta').textContent = metaLine(video);
 
+      const badge = node.querySelector('.protected-badge');
+      badge.classList.toggle('hidden', video.downloadable);
+      badge.querySelector('.protected-badge__text').textContent = t(lang, 'notDownloadable');
+
       const downloadBtn = node.querySelector('.btn--download');
       const copyBtn = node.querySelector('.btn--copy');
       downloadBtn.textContent = t(lang, 'download');
       copyBtn.textContent = t(lang, 'copyUrl');
       downloadBtn.disabled = !video.downloadable;
+      if (!video.downloadable) downloadBtn.title = t(lang, 'notDownloadableTooltip');
 
       downloadBtn.addEventListener('click', async () => {
         downloadBtn.disabled = true;

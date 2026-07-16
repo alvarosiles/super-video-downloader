@@ -135,6 +135,10 @@
       copied: 'URL copiada',
       unknown: 'Desconocido',
       notDownloadable: 'No disponible para descarga directa',
+      notDownloadableTooltip:
+        'Este video usa streaming protegido (blob:/MediaSource): el sitio no ofrece un archivo descargable directo, así que Super Video Downloader no puede (ni intenta) descargarlo.',
+      protectedNotice:
+        'Este sitio usa streaming protegido para algunos videos: se detectan, pero no se pueden descargar directamente.',
       optionsTitle: 'Configuración',
       sectionDownloads: 'Descargas',
       downloadFolder: 'Subcarpeta de descarga (dentro de Descargas)',
@@ -169,6 +173,10 @@
       copied: 'URL copied',
       unknown: 'Unknown',
       notDownloadable: 'Not directly downloadable',
+      notDownloadableTooltip:
+        "This video uses protected streaming (blob:/MediaSource): the site doesn't offer a direct downloadable file, so Super Video Downloader can't (and won't try to) download it.",
+      protectedNotice:
+        'This site uses protected streaming for some videos: they are detected, but cannot be downloaded directly.',
       optionsTitle: 'Settings',
       sectionDownloads: 'Downloads',
       downloadFolder: 'Download subfolder (inside Downloads)',

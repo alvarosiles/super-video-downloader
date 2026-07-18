@@ -152,9 +152,6 @@
     en: {
       appName: 'Super Video Downloader',
       currentSite: 'Current site',
-      videosFound_one: '{n} video detected',
-      videosFound_other: '{n} videos detected',
-      videosFound_zero: 'No videos detected',
       emptyState: 'No downloadable videos were detected on this site.',
       refresh: 'Refresh',
       settings: 'Settings',

@@ -1,16 +1,16 @@
-# 3-build.ps1 — Super Volume
+# 3-build.ps1 — Super Video Downloader
 # ─────────────────────────────────────────────────────────────────────────
 # Empaqueta la extensión en un .zip listo para subir a la Chrome Web Store
 # (o para distribuir manualmente). Solo incluye los archivos que la
 # extensión necesita en tiempo de ejecución, valida que manifest.json sea
 # JSON válido, que todos los iconos declarados existan, y preserva la
-# estructura de carpetas (icons/) dentro del zip.
+# estructura de carpetas dentro del zip.
 #
 # Uso:
-#   powershell -File scripts\3-build.ps1
+#   powershell -File tools\3-build.ps1
 #
 # Salida:
-#   dist\super-volume-v<version>.zip
+#   dist\super-video-downloader-v<version>.zip
 
 $ErrorActionPreference = 'Stop'
 
@@ -39,13 +39,27 @@ $Files = @(
     'manifest.json',
     'background.js',
     'content.js',
-    'popup.html',
-    'popup.css',
-    'popup.js',
-    'icons/icon16.png',
-    'icons/icon32.png',
-    'icons/icon48.png',
-    'icons/icon128.png'
+    'scripts/utils.js',
+    'scripts/storage.js',
+    'scripts/detector.js',
+    'scripts/downloader.js',
+    'scripts/hls-parser.js',
+    'offscreen/offscreen.html',
+    'offscreen/offscreen.js',
+    'vendor/ffmpeg/ffmpeg.js',
+    'vendor/ffmpeg/814.ffmpeg.js',
+    'vendor/ffmpeg/ffmpeg-core.js',
+    'vendor/ffmpeg/ffmpeg-core.wasm',
+    'popup/popup.html',
+    'popup/popup.css',
+    'popup/popup.js',
+    'options/options.html',
+    'options/options.css',
+    'options/options.js',
+    'assets/icons/icon16.png',
+    'assets/icons/icon32.png',
+    'assets/icons/icon48.png',
+    'assets/icons/icon128.png'
 )
 
 $Missing = $false
@@ -61,7 +75,13 @@ if ($Missing) {
 
 # ── 3. Validar sintaxis de los .js si Node está disponible ──────────────
 if (Get-Command node -ErrorAction SilentlyContinue) {
-    foreach ($js in @('background.js', 'content.js', 'popup.js')) {
+    $JsFiles = @(
+        'background.js', 'content.js',
+        'scripts/utils.js', 'scripts/storage.js', 'scripts/detector.js',
+        'scripts/downloader.js', 'scripts/hls-parser.js',
+        'offscreen/offscreen.js', 'popup/popup.js', 'options/options.js'
+    )
+    foreach ($js in $JsFiles) {
         node --check $js
         if ($LASTEXITCODE -ne 0) {
             Write-Error "Error de sintaxis en $js. Corrígelo antes de compilar."
@@ -70,9 +90,9 @@ if (Get-Command node -ErrorAction SilentlyContinue) {
     Write-Output "Sintaxis de los .js OK"
 }
 
-# ── 4. Empaquetar (preservando icons/ como carpeta) ──────────────────────
+# ── 4. Empaquetar (preservando la estructura de carpetas) ────────────────
 New-Item -ItemType Directory -Force -Path $DistDir | Out-Null
-$ZipPath = Join-Path $DistDir "super-volume-v$Version.zip"
+$ZipPath = Join-Path $DistDir "super-video-downloader-v$Version.zip"
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 
 Add-Type -AssemblyName System.IO.Compression
@@ -89,8 +109,8 @@ Write-Output ""
 Write-Output "======================================================"
 Write-Output " Paquete generado: $ZipPath"
 Write-Output "======================================================"
-$SizeKB = [math]::Round((Get-Item $ZipPath).Length / 1KB, 1)
-Write-Output "Tamaño: $SizeKB KB"
+$SizeMB = [math]::Round((Get-Item $ZipPath).Length / 1MB, 1)
+Write-Output "Tamaño: $SizeMB MB"
 Write-Output ""
 Write-Output "Contenido:"
 [System.IO.Compression.ZipFile]::OpenRead($ZipPath).Entries | ForEach-Object { Write-Output "  $($_.FullName)" }

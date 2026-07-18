@@ -266,39 +266,73 @@
 
   const STREAM_QUALITY_RE = /(\d{3,4}p|4k|fhd|hd|sd)/i;
 
+  function sanitizeForFilename(text) {
+    return String(text || 'video').replace(/[\\/:*?"<>|]/g, '_').slice(0, 80);
+  }
+
+  /**
+   * Distintas calidades del MISMO video comparten carpeta en el CDN (p. ej.
+   * ".../90a40b9a-.../5/hls.m3u8" y ".../90a40b9a-.../5/hls-720p.m3u8"),
+   * mientras que videos DISTINTOS en la misma página (varios reproductores
+   * embebidos) caen en carpetas distintas. Agrupar por esa carpeta es lo
+   * que permite mostrar una tarjeta por video real en vez de mezclar todo
+   * lo detectado en la pestaña en un solo ítem.
+   */
+  function streamGroupKey(url) {
+    try {
+      const parsed = new URL(url);
+      return parsed.hostname + parsed.pathname.replace(/\/[^/]*$/, '');
+    } catch (_err) {
+      return url;
+    }
+  }
+
   /**
    * Un mismo video HLS/DASH suele generar VARIAS peticiones de manifiesto
    * (el maestro + una por cada calidad que referencia) — sin agrupar, cada
    * una aparecía como una tarjeta duplicada idéntica en el popup. Aquí se
-   * combinan todas las detectadas en la pestaña en un solo item con
-   * selector de calidad, igual que ya se hace con los <video>/<source>.
+   * combinan las de un mismo video en un solo item con selector de calidad
+   * (igual que ya se hace con los <video>/<source>), pero videos distintos
+   * de la misma página quedan en tarjetas separadas.
    */
   function streamsToVideos(streams, pageTitle) {
     if (streams.length === 0) return [];
-    const filename = `${(pageTitle || 'video').replace(/[\\/:*?"<>|]/g, '_').slice(0, 80)}.mp4`;
 
-    const variants = streams.map((stream, index) => {
-      // El badge muestra el formato de SALIDA (siempre .mp4, sea cual sea
-      // el protocolo de origen) — "HLS 720P" confundía, porque el archivo
-      // que termina descargando el usuario es un MP4 normal, no un .m3u8.
-      // DASH sigue etiquetado aparte porque todavía no se puede descargar.
-      const label = stream.kind === 'dash' ? 'DASH' : 'MP4';
-      const match = STREAM_QUALITY_RE.exec(stream.url);
-      return {
-        url: stream.url,
-        filename,
-        mime: stream.kind === 'dash' ? 'application/dash+xml' : 'application/x-mpegURL',
-        width: null,
-        height: null,
-        duration: null,
-        qualityLabel: match ? `${label} ${match[1].toUpperCase()}` : `${label} #${index + 1}`,
-        downloadable: true,
-        kind: stream.kind,
-        sizeBytes: null,
-      };
+    const groups = new Map();
+    for (const stream of streams) {
+      const key = streamGroupKey(stream.url);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(stream);
+    }
+
+    const groupList = Array.from(groups.values());
+    return groupList.map((groupStreams, groupIndex) => {
+      const title = groupList.length > 1 ? `${pageTitle || 'video'} (${groupIndex + 1})` : pageTitle || 'video';
+      const filename = `${sanitizeForFilename(title)}.mp4`;
+
+      const variants = groupStreams.map((stream, index) => {
+        // El badge muestra el formato de SALIDA (siempre .mp4, sea cual sea
+        // el protocolo de origen) — "HLS 720P" confundía, porque el archivo
+        // que termina descargando el usuario es un MP4 normal, no un .m3u8.
+        // DASH sigue etiquetado aparte porque todavía no se puede descargar.
+        const label = stream.kind === 'dash' ? 'DASH' : 'MP4';
+        const match = STREAM_QUALITY_RE.exec(stream.url);
+        return {
+          url: stream.url,
+          filename,
+          mime: stream.kind === 'dash' ? 'application/dash+xml' : 'application/x-mpegURL',
+          width: null,
+          height: null,
+          duration: null,
+          qualityLabel: match ? `${label} ${match[1].toUpperCase()}` : `${label} #${index + 1}`,
+          downloadable: true,
+          kind: stream.kind,
+          sizeBytes: null,
+        };
+      });
+
+      return { id: `stream-group-${groupIndex}`, filename, poster: null, duration: null, selectedIndex: 0, variants };
     });
-
-    return [{ id: 'stream-group', filename, poster: null, duration: null, selectedIndex: 0, variants }];
   }
 
   async function loadVideos() {

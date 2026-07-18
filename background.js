@@ -139,6 +139,18 @@ async function sendToOffscreen(message, attempts = 20) {
   }
 }
 
+// Cuántas descargas vía ffmpeg.wasm siguen en curso — el offscreen document
+// completo (no solo la instancia de ffmpeg) se cierra cuando llega a 0, para
+// liberar también la memoria del propio proceso del documento, no solo la
+// del motor de WASM.
+let activeWasmDownloads = 0;
+
+async function closeOffscreenIfIdle() {
+  activeWasmDownloads = Math.max(0, activeWasmDownloads - 1);
+  if (activeWasmDownloads > 0) return;
+  await chrome.offscreen.closeDocument().catch(() => {});
+}
+
 /**
  * fetch() nunca puede poner Referer/Origin (son "forbidden headers" del
  * propio estándar, sin excepción para extensiones) — declarativeNetRequest
@@ -182,6 +194,7 @@ async function withHeaderOverride(manifestUrl, headers, fn) {
  * ya existe más abajo, igual que cualquier descarga directa.
  */
 async function startWasmDownload({ url, filename, headers, site, settings }) {
+  activeWasmDownloads += 1;
   try {
     await ensureOffscreenDocument();
 
@@ -206,15 +219,31 @@ async function startWasmDownload({ url, filename, headers, site, settings }) {
       );
     });
 
-    pendingDownloads.set(downloadId, { site: site || '', sizeHint: result.sizeBytes || 0 });
+    pendingDownloads.set(downloadId, { site: site || '', sizeHint: result.sizeBytes || 0, blobUrl: result.blobUrl });
     return { ok: true, downloadId };
   } catch (err) {
     return { ok: false, error: err.message || String(err) };
+  } finally {
+    await closeOffscreenIfIdle();
   }
 }
 
 chrome.downloads.onChanged.addListener(async (delta) => {
-  if (!delta.state || delta.state.current !== 'complete') return;
+  if (!delta.state) return;
+
+  // Sea cual sea el desenlace, si esta descarga vino de un blob: (el flujo
+  // de ffmpeg.wasm) hay que liberar esa memoria — revocarlo se puede hacer
+  // desde cualquier contexto de la extensión, no hace falta ser el mismo
+  // que lo creó (offscreen.js), solo compartir origen.
+  if (delta.state.current === 'complete' || delta.state.current === 'interrupted') {
+    const meta = pendingDownloads.get(delta.id);
+    if (meta?.blobUrl) URL.revokeObjectURL(meta.blobUrl);
+  }
+
+  if (delta.state.current !== 'complete') {
+    if (delta.state.current === 'interrupted') pendingDownloads.delete(delta.id);
+    return;
+  }
 
   const [item] = await chrome.downloads.search({ id: delta.id });
   if (!item) return;
@@ -230,7 +259,7 @@ chrome.downloads.onChanged.addListener(async (delta) => {
     filename,
     size: item.fileSize > 0 ? item.fileSize : meta.sizeHint,
     site: meta.site,
-    url: item.url,
+    url: meta.blobUrl ? '' : item.url,
   });
 
   const settings = await self.SVDStorage.getSettings();

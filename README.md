@@ -8,13 +8,15 @@ Extensión para **Google Chrome, Edge, Brave y Opera** (Manifest V3) que
 detecta los videos con enlace directo disponibles en la página actual y
 permite descargarlos con un clic, cuando el propio sitio lo permite.
 
-**Esta extensión no elude DRM, cifrado ni protecciones de streaming.** Solo
-trabaja con recursos que el navegador ya puede reproducir/descargar de
-forma nativa (`<video>`/`<source>` con URL `http(s)`/`data:` directa). Las
-fuentes `blob:`/`mediasource:` típicas del streaming adaptativo (YouTube,
-Netflix, y la mayoría de plataformas "premium") se muestran en la lista
-para que sepas que existen, pero se marcan como **no descargables** a
-propósito.
+**Esta extensión no elude DRM, cifrado ni protecciones de streaming.**
+Descarga archivos con URL directa (`<video>`/`<source>` con `http(s)`/
+`data:`), y también reconstruye streams **HLS sin cifrar** (`.m3u8`) en un
+único `.mp4`, usando `ffmpeg.wasm` dentro del propio navegador — sin
+instalar nada aparte. Las fuentes `blob:`/`mediasource:` con DRM real
+(YouTube, Netflix, y la mayoría de plataformas "premium") se muestran en
+la lista para que sepas que existen, pero se marcan como **no
+descargables** a propósito: ni esta extensión ni `ffmpeg` pueden (ni
+intentan) descifrarlas.
 
 - **Autor:** [alvarosiles](https://github.com/alvarosiles)
 - **Contacto:** alvarosiles.developer@gmail.com
@@ -49,9 +51,15 @@ externos, sin servidores intermediarios, sin dependencias.
 
 - Detecta automáticamente `<video>`/`<source>`, incluidos los que aparecen
   después de cargar la página (sitios de una sola página).
+- Detecta streams **HLS** (`.m3u8`) observando la red (necesario porque el
+  `<video>` de un reproductor con `hls.js` nunca expone esa URL en el DOM),
+  y los reconstruye en un `.mp4` con `ffmpeg.wasm` — con barra de
+  progreso, velocidad y botón de cancelar.
 - Si el sitio ofrece varias calidades — como `<source>` adicionales dentro
-  del reproductor o enlaces de descarga tipo "480p / 720p / 1080p" fuera de
-  él — se listan todas por separado, no solo la que está reproduciéndose.
+  del reproductor, variantes HLS, o enlaces de descarga tipo "480p / 720p /
+  1080p" fuera de él — se listan todas en un selector, no solo la que está
+  reproduciéndose. Videos distintos en la misma página (varios
+  reproductores embebidos) aparecen como tarjetas separadas.
 - Cada video detectado muestra: nombre, formato, resolución o calidad,
   tamaño y duración (los que estén disponibles).
 - Descarga con un clic (`chrome.downloads`) o copia la URL directa.
@@ -128,14 +136,18 @@ la extensión necesita en tiempo de ejecución.
 | Permiso | Para qué se usa |
 |---|---|
 | `storage` | Guardar la configuración y el historial de descargas (`chrome.storage.local`). |
-| `activeTab` | Identificar la pestaña activa al abrir el popup. |
 | `downloads` | Iniciar descargas y saber cuándo terminan (`chrome.downloads`). |
+| `downloads.open` | Botón "Reproducir" tras una descarga completada (`chrome.downloads.open`). |
 | `notifications` | Avisar cuando una descarga se completa (si el usuario lo activó en Opciones). |
+| `webRequest` | Detectar manifiestos HLS (`.m3u8`) por red — la única forma de verlos cuando el sitio usa `hls.js` (el `<video>` reproduce un `blob:`, no la URL real). Solo se observan URLs, nunca se modifica ni bloquea tráfico con este permiso. |
+| `webNavigation` | Limpiar los streams detectados de una pestaña cuando navega a otra página. |
+| `declarativeNetRequest` | Fijar temporalmente la cabecera `Referer`/`Origin` al pedir un manifiesto HLS — muchos CDNs la exigen, y `fetch()` no puede establecerla por sí solo. La regla se agrega justo antes de la descarga y se quita al terminar. |
+| `offscreen` | Correr `ffmpeg.wasm` (necesita un documento con Worker/WebAssembly) para reconstruir streams HLS. |
 | `host_permissions: <all_urls>` | Inyectar el detector en cualquier sitio — no hay una lista fija de páginas soportadas. |
 
-No se usa `webRequest`, no se intercepta tráfico de red del usuario, y no
-se envía ningún dato a servidores externos: todo el procesamiento ocurre
-localmente en tu navegador.
+No se envía ningún dato a servidores externos: toda la detección,
+reconstrucción de streams y descarga ocurre localmente en tu navegador. No
+hay analítica ni telemetría propia.
 
 ---
 
@@ -150,7 +162,13 @@ super-video-downloader/
 │   ├── utils.js             # Formato de bytes/duración, MIME, i18n
 │   ├── storage.js           # chrome.storage.local: settings + historial
 │   ├── detector.js          # Escaneo del DOM en busca de <video>/<source>
-│   └── downloader.js        # Envoltorio de chrome.downloads.download()
+│   ├── downloader.js        # Envoltorio de chrome.downloads.download()
+│   └── hls-parser.js        # Parser mínimo de manifiestos HLS
+├── offscreen/
+│   ├── offscreen.html
+│   └── offscreen.js         # Reconstruye streams HLS con ffmpeg.wasm
+├── vendor/
+│   └── ffmpeg/               # ffmpeg.wasm (bundle local, sin CDN)
 ├── popup/
 │   ├── popup.html
 │   ├── popup.css

@@ -30,16 +30,20 @@ async function fetchFile(url, signal) {
 // url del manifiesto -> AbortController, solo mientras esa descarga está en curso.
 const activeDownloads = new Map();
 
-let ffmpegInstance = null;
-
-async function getFfmpeg() {
-  if (ffmpegInstance) return ffmpegInstance;
+/**
+ * Una instancia nueva de ffmpeg.wasm por descarga (nunca se reutiliza) y se
+ * apaga con `.terminate()` al terminar, en vez de guardar un singleton. La
+ * memoria lineal de WebAssembly solo crece dentro de una misma instancia
+ * (nunca se encoge, aunque se borren los archivos del filesystem virtual)
+ * — sin esto, cada descarga sucesiva iba dejando más RAM ocupada sin
+ * liberar, incluso con streams chicos.
+ */
+async function createFfmpeg() {
   const ffmpeg = new FFmpeg();
   await ffmpeg.load({
     coreURL: chrome.runtime.getURL('vendor/ffmpeg/ffmpeg-core.js'),
     wasmURL: chrome.runtime.getURL('vendor/ffmpeg/ffmpeg-core.wasm'),
   });
-  ffmpegInstance = ffmpeg;
   return ffmpeg;
 }
 
@@ -84,47 +88,49 @@ async function downloadHls({ url, filename }, onProgress, signal) {
   const segments = await resolveSegments(url);
   if (segments.length === 0) throw new Error('El manifiesto no tiene segmentos.');
 
-  const ffmpeg = await getFfmpeg();
-  const totalDuration = segments.reduce((sum, s) => sum + (s.duration || 0), 0);
-  const segmentNames = segments.map((_s, i) => `seg${i}.ts`);
+  const ffmpeg = await createFfmpeg();
+  try {
+    const totalDuration = segments.reduce((sum, s) => sum + (s.duration || 0), 0);
+    const segmentNames = segments.map((_s, i) => `seg${i}.ts`);
 
-  let fetchedDuration = 0;
-  let bytesSoFar = 0;
-  for (let i = 0; i < segments.length; i++) {
-    if (signal.aborted) throw new Error('Cancelado por el usuario.');
-    const buf = await fetchFile(segments[i].url, signal);
-    await ffmpeg.writeFile(segmentNames[i], buf);
-    bytesSoFar += buf.byteLength;
-    fetchedDuration += segments[i].duration || 0;
-    // 0-70%: descarga de segmentos. 70-100%: remux con ffmpeg.
-    const fetchPercent = totalDuration > 0 ? (fetchedDuration / totalDuration) * 70 : ((i + 1) / segments.length) * 70;
-    onProgress(Math.min(70, Math.round(fetchPercent)), bytesSoFar);
-  }
-
-  const concatListName = 'concat.txt';
-  const outputName = 'output.mp4';
-  await ffmpeg.writeFile(concatListName, segmentNames.map((name) => `file '${name}'`).join('\n'));
-
-  ffmpeg.off('log');
-  ffmpeg.on('log', ({ message }) => {
-    const match = /time=(\d+):(\d+):(\d+\.\d+)/.exec(message);
-    if (match && totalDuration > 0) {
-      const elapsed = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
-      onProgress(Math.min(100, 70 + Math.round((elapsed / totalDuration) * 30)));
+    let fetchedDuration = 0;
+    let bytesSoFar = 0;
+    for (let i = 0; i < segments.length; i++) {
+      if (signal.aborted) throw new Error('Cancelado por el usuario.');
+      const buf = await fetchFile(segments[i].url, signal);
+      await ffmpeg.writeFile(segmentNames[i], buf);
+      bytesSoFar += buf.byteLength;
+      fetchedDuration += segments[i].duration || 0;
+      // 0-70%: descarga de segmentos. 70-100%: remux con ffmpeg.
+      const fetchPercent = totalDuration > 0 ? (fetchedDuration / totalDuration) * 70 : ((i + 1) / segments.length) * 70;
+      onProgress(Math.min(70, Math.round(fetchPercent)), bytesSoFar);
     }
-  });
 
-  await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', concatListName, '-c', 'copy', '-bsf:a', 'aac_adtstoasc', outputName]);
-  const data = await ffmpeg.readFile(outputName);
+    const concatListName = 'concat.txt';
+    const outputName = 'output.mp4';
+    await ffmpeg.writeFile(concatListName, segmentNames.map((name) => `file '${name}'`).join('\n'));
 
-  for (const name of [...segmentNames, concatListName, outputName]) {
-    await ffmpeg.deleteFile(name).catch(() => {});
+    ffmpeg.on('log', ({ message }) => {
+      const match = /time=(\d+):(\d+):(\d+\.\d+)/.exec(message);
+      if (match && totalDuration > 0) {
+        const elapsed = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+        onProgress(Math.min(100, 70 + Math.round((elapsed / totalDuration) * 30)));
+      }
+    });
+
+    await ffmpeg.exec(['-f', 'concat', '-safe', '0', '-i', concatListName, '-c', 'copy', '-bsf:a', 'aac_adtstoasc', outputName]);
+    const data = await ffmpeg.readFile(outputName);
+
+    const blob = new Blob([data.buffer], { type: 'video/mp4' });
+    const blobUrl = URL.createObjectURL(blob);
+    onProgress(100);
+    return { blobUrl, sizeBytes: blob.size, filename };
+  } finally {
+    // .terminate() mata el Worker y libera toda la memoria lineal de WASM
+    // de una vez — más confiable que borrar archivos uno por uno del
+    // filesystem virtual, que no reduce la memoria ya reservada.
+    ffmpeg.terminate();
   }
-
-  const blob = new Blob([data.buffer], { type: 'video/mp4' });
-  const blobUrl = URL.createObjectURL(blob);
-  onProgress(100);
-  return { blobUrl, sizeBytes: blob.size, filename };
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

@@ -50,6 +50,13 @@ FILES=(
   scripts/storage.js
   scripts/detector.js
   scripts/downloader.js
+  scripts/hls-parser.js
+  offscreen/offscreen.html
+  offscreen/offscreen.js
+  vendor/ffmpeg/ffmpeg.js
+  vendor/ffmpeg/814.ffmpeg.js
+  vendor/ffmpeg/ffmpeg-core.js
+  vendor/ffmpeg/ffmpeg-core.wasm
   popup/popup.html
   popup/popup.css
   popup/popup.js
@@ -76,7 +83,7 @@ fi
 
 # ── 3. Validar sintaxis de los .js si Node está disponible ─────────────────
 if command -v node >/dev/null 2>&1; then
-  for js in background.js content.js scripts/utils.js scripts/storage.js scripts/detector.js scripts/downloader.js popup/popup.js options/options.js; do
+  for js in background.js content.js scripts/utils.js scripts/storage.js scripts/detector.js scripts/downloader.js scripts/hls-parser.js offscreen/offscreen.js popup/popup.js options/options.js; do
     if ! node --check "$js"; then
       echo "Error de sintaxis en $js. Corrígelo antes de compilar." >&2
       exit 1

@@ -54,7 +54,14 @@
 
   <template id="videoItemTemplate">
     <article class="video-item">
-      <div class="video-item__info">
+      <div class="video-item__thumb">
+        <img class="video-item__poster hidden" alt="" />
+        <span class="video-item__poster-fallback">
+          <svg viewBox="0 0 24 24" focusable="false"><path d="M8 5v14l11-7z"/></svg>
+        </span>
+        <span class="video-item__duration hidden"></span>
+      </div>
+      <div class="video-item__body">
         <div class="video-item__title-row">
           <p class="video-item__name"></p>
           <span class="protected-badge hidden">
@@ -62,11 +69,19 @@
             <span class="protected-badge__text">No disponible para descarga directa</span>
           </span>
         </div>
-        <p class="video-item__meta"></p>
-      </div>
-      <div class="video-item__actions">
-        <button class="btn btn--copy" type="button" data-i18n="copyUrl">Copy URL</button>
-        <button class="btn btn--download" type="button" data-i18n="download">Download</button>
+        <div class="video-item__footer">
+          <select class="video-item__quality"></select>
+          <span class="video-item__size"></span>
+          <div class="split-btn">
+            <button class="split-btn__main" type="button" data-i18n="download">Download</button>
+            <button class="split-btn__toggle" type="button" title="More" aria-haspopup="true" aria-expanded="false">
+              <svg viewBox="0 0 24 24" focusable="false"><path d="M7 10l5 5 5-5z"/></svg>
+            </button>
+            <div class="split-btn__menu hidden">
+              <button class="split-btn__menu-item btn--copy" type="button" data-i18n="copyUrl">Copy URL</button>
+            </div>
+          </div>
+        </div>
       </div>
     </article>
   </template>

@@ -53,6 +53,7 @@
       height: video.videoHeight || null,
       duration: isFinite(video.duration) ? video.duration : null,
       qualityLabel: qualityLabelFrom(video.currentSrc) || qualityLabelFrom(video.title),
+      poster: video.poster || null,
     };
   }
 
@@ -76,6 +77,7 @@
             qualityLabelFrom(source.getAttribute('label')) ||
             qualityLabelFrom(source.getAttribute('size')) ||
             qualityLabelFrom(url),
+          poster: isActive ? video.poster || null : null,
         };
       })
       .filter(Boolean);
@@ -98,6 +100,7 @@
           height: null,
           duration: null,
           qualityLabel: qualityLabelFrom(anchor.textContent) || qualityLabelFrom(url),
+          poster: null,
         };
       })
       .filter(Boolean);
@@ -112,27 +115,12 @@
       height: base.height ?? extra.height,
       duration: base.duration ?? extra.duration,
       qualityLabel: base.qualityLabel || extra.qualityLabel,
+      poster: base.poster || extra.poster,
     };
   }
 
-  /** Escanea el documento actual y devuelve la lista de candidatos (sin tamaño en bytes: eso se pide bajo demanda). */
-  function scan() {
-    const seen = new Map();
-
-    function addCandidate(candidate) {
-      if (!candidate) return;
-      const existing = seen.get(candidate.url);
-      seen.set(candidate.url, existing ? mergeCandidate(existing, candidate) : candidate);
-    }
-
-    document.querySelectorAll('video').forEach((video) => {
-      addCandidate(candidateFromVideo(video));
-      candidatesFromSources(video).forEach(addCandidate);
-    });
-    candidatesFromDownloadLinks().forEach(addCandidate);
-
-    return Array.from(seen.values()).map((candidate, index) => ({
-      id: `svd-${index}-${candidate.url.length}`,
+  function candidateToVariant(candidate) {
+    return {
       url: candidate.url,
       mime: candidate.mime || '',
       filename: filenameFromUrl(candidate.url, document.title, candidate.mime),
@@ -142,31 +130,94 @@
       qualityLabel: candidate.qualityLabel || null,
       downloadable: isDirectlyDownloadable(candidate.url),
       sizeBytes: null,
-    }));
+    };
   }
 
   /**
-   * Completa `sizeBytes` haciendo una petición HEAD por cada candidato
-   * descargable. Es una operación de red, así que solo se llama bajo
-   * demanda (cuando el popup realmente necesita mostrar el tamaño), nunca
-   * automáticamente al cargar la página.
+   * Escanea el documento actual y devuelve la lista de videos detectados.
+   * Cada <video> del DOM se agrupa en un único item con todas sus calidades
+   * (variants) — misma URL base, distinto <source> — para que el popup
+   * pueda ofrecer un selector de formato/tamaño en vez de listar cada
+   * calidad como un video aparte. Los enlaces de descarga sueltos (<a>)
+   * no tienen un <video> que los agrupe, así que quedan como items de una
+   * sola variante.
    */
-  async function enrichWithSize(candidates) {
-    await Promise.all(
-      candidates
-        .filter((c) => c.downloadable && c.sizeBytes == null)
-        .map(async (c) => {
-          try {
-            const res = await fetch(c.url, { method: 'HEAD' });
-            const len = res.headers.get('content-length');
-            c.sizeBytes = len ? Number(len) : null;
-            if (!c.mime) c.mime = res.headers.get('content-type') || '';
-          } catch (_err) {
-            c.sizeBytes = null;
-          }
-        })
-    );
-    return candidates;
+  function scan() {
+    const items = [];
+    const seenUrls = new Set();
+
+    document.querySelectorAll('video').forEach((video) => {
+      const byUrl = new Map();
+      const addCandidate = (candidate) => {
+        if (!candidate || !candidate.url || seenUrls.has(candidate.url)) return;
+        const existing = byUrl.get(candidate.url);
+        byUrl.set(candidate.url, existing ? mergeCandidate(existing, candidate) : candidate);
+      };
+
+      addCandidate(candidateFromVideo(video));
+      candidatesFromSources(video).forEach(addCandidate);
+
+      const candidates = Array.from(byUrl.values());
+      if (candidates.length === 0) return;
+      candidates.forEach((c) => seenUrls.add(c.url));
+
+      const activeUrl = video.currentSrc || video.src;
+      const primary = candidates.find((c) => c.url === activeUrl) || candidates[0];
+      const variants = candidates.map(candidateToVariant);
+
+      items.push({
+        id: `svd-${items.length}-${primary.url.length}`,
+        filename: filenameFromUrl(primary.url, document.title, primary.mime),
+        poster: primary.poster || null,
+        duration: primary.duration,
+        variants,
+        selectedIndex: Math.max(0, variants.findIndex((v) => v.url === primary.url)),
+      });
+    });
+
+    candidatesFromDownloadLinks().forEach((candidate) => {
+      if (!candidate.url || seenUrls.has(candidate.url)) return;
+      seenUrls.add(candidate.url);
+      items.push({
+        id: `svd-${items.length}-${candidate.url.length}`,
+        filename: filenameFromUrl(candidate.url, document.title, candidate.mime),
+        poster: null,
+        duration: candidate.duration,
+        variants: [candidateToVariant(candidate)],
+        selectedIndex: 0,
+      });
+    });
+
+    return items;
+  }
+
+  /**
+   * Completa `sizeBytes` haciendo una petición HEAD por cada variante
+   * descargable de cada video. Es una operación de red, así que solo se
+   * llama bajo demanda (cuando el popup realmente necesita mostrar el
+   * tamaño), nunca automáticamente al cargar la página.
+   */
+  async function enrichWithSize(items) {
+    const tasks = [];
+    for (const item of items) {
+      for (const variant of item.variants) {
+        if (!variant.downloadable || variant.sizeBytes != null) continue;
+        tasks.push(
+          (async () => {
+            try {
+              const res = await fetch(variant.url, { method: 'HEAD' });
+              const len = res.headers.get('content-length');
+              variant.sizeBytes = len ? Number(len) : null;
+              if (!variant.mime) variant.mime = res.headers.get('content-type') || '';
+            } catch (_err) {
+              variant.sizeBytes = null;
+            }
+          })()
+        );
+      }
+    }
+    await Promise.all(tasks);
+    return items;
   }
 
   /**

@@ -45,19 +45,14 @@
     });
   }
 
-  // Solo datos técnicos aquí: el motivo de "no descargable" ahora tiene su
-  // propia insignia (ver renderVideos) en vez de ir escondido y cortado al
-  // final de esta línea.
-  function metaLine(video) {
+  function qualityLabel(variant) {
+    if (variant.width && variant.height) return `${variant.width}×${variant.height}`;
+    return variant.qualityLabel || (variant.mime ? variant.mime.replace('video/', '').toUpperCase() : '');
+  }
+
+  function sizeText(variant) {
     const lang = local.settings.language;
-    const parts = [];
-    if (video.mime) parts.push(video.mime.replace('video/', '').toUpperCase());
-    if (video.width && video.height) parts.push(`${video.width}×${video.height}`);
-    else if (video.qualityLabel) parts.push(video.qualityLabel);
-    const duration = formatDuration(video.duration);
-    if (duration) parts.push(duration);
-    if (video.downloadable) parts.push(formatBytes(video.sizeBytes) || t(lang, 'unknown'));
-    return parts.join(' · ');
+    return variant.downloadable ? formatBytes(variant.sizeBytes) || t(lang, 'unknown') : '';
   }
 
   function renderVideos(videos) {
@@ -65,49 +60,104 @@
     els.videoList.innerHTML = '';
     els.countBadge.textContent = String(videos.length);
     els.emptyState.classList.toggle('hidden', videos.length > 0);
-    els.protectedNotice.classList.toggle('hidden', !videos.some((v) => !v.downloadable));
+    els.protectedNotice.classList.toggle('hidden', !videos.some((v) => !v.variants.some((variant) => variant.downloadable)));
 
     for (const video of videos) {
       const node = els.template.content.firstElementChild.cloneNode(true);
-      node.classList.toggle('is-disabled', !video.downloadable);
       node.querySelector('.video-item__name').textContent = video.filename;
-      node.querySelector('.video-item__meta').textContent = metaLine(video);
+
+      const poster = node.querySelector('.video-item__poster');
+      if (video.poster) {
+        poster.src = video.poster;
+        poster.classList.remove('hidden');
+        poster.onerror = () => poster.classList.add('hidden');
+      }
+
+      const durationEl = node.querySelector('.video-item__duration');
+      const duration = formatDuration(video.duration);
+      if (duration) {
+        durationEl.textContent = duration;
+        durationEl.classList.remove('hidden');
+      }
 
       const badge = node.querySelector('.protected-badge');
-      badge.classList.toggle('hidden', video.downloadable);
-      badge.querySelector('.protected-badge__text').textContent = t(lang, 'notDownloadable');
-
-      const downloadBtn = node.querySelector('.btn--download');
+      const sizeEl = node.querySelector('.video-item__size');
+      const qualitySelect = node.querySelector('.video-item__quality');
+      const downloadBtn = node.querySelector('.split-btn__main');
+      const toggleBtn = node.querySelector('.split-btn__toggle');
+      const menu = node.querySelector('.split-btn__menu');
       const copyBtn = node.querySelector('.btn--copy');
       downloadBtn.textContent = t(lang, 'download');
       copyBtn.textContent = t(lang, 'copyUrl');
-      downloadBtn.disabled = !video.downloadable;
-      if (!video.downloadable) downloadBtn.title = t(lang, 'notDownloadableTooltip');
+
+      video.variants.forEach((variant, index) => {
+        const option = document.createElement('option');
+        option.value = String(index);
+        option.textContent = qualityLabel(variant) || `#${index + 1}`;
+        qualitySelect.appendChild(option);
+      });
+      qualitySelect.disabled = video.variants.length <= 1;
+
+      function applyVariant(index) {
+        const variant = video.variants[index];
+        qualitySelect.value = String(index);
+        node.classList.toggle('is-disabled', !variant.downloadable);
+        sizeEl.textContent = sizeText(variant);
+        badge.classList.toggle('hidden', variant.downloadable);
+        badge.querySelector('.protected-badge__text').textContent = t(lang, 'notDownloadable');
+        downloadBtn.disabled = !variant.downloadable;
+        downloadBtn.title = variant.downloadable ? '' : t(lang, 'notDownloadableTooltip');
+      }
+
+      applyVariant(video.selectedIndex || 0);
+
+      qualitySelect.addEventListener('change', () => {
+        applyVariant(Number(qualitySelect.value));
+      });
 
       downloadBtn.addEventListener('click', async () => {
+        const variant = video.variants[Number(qualitySelect.value)];
         downloadBtn.disabled = true;
         try {
-          await window.SVDDownloader.startDownload(video, local.settings, local.domain);
-          showStatus(`${t(lang, 'download')}: ${video.filename}`);
+          await window.SVDDownloader.startDownload(variant, local.settings, local.domain);
+          showStatus(`${t(lang, 'download')}: ${variant.filename}`);
         } catch (err) {
           showStatus(err.message || 'Error');
         } finally {
-          downloadBtn.disabled = !video.downloadable;
+          downloadBtn.disabled = !variant.downloadable;
+        }
+      });
+
+      toggleBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const isOpen = !menu.classList.contains('hidden');
+        closeAllMenus();
+        if (!isOpen) {
+          menu.classList.remove('hidden');
+          toggleBtn.setAttribute('aria-expanded', 'true');
         }
       });
 
       copyBtn.addEventListener('click', async () => {
+        closeAllMenus();
+        const variant = video.variants[Number(qualitySelect.value)];
         try {
-          await navigator.clipboard.writeText(video.url);
+          await navigator.clipboard.writeText(variant.url);
           showStatus(t(lang, 'copied'));
         } catch (_err) {
-          showStatus(video.url);
+          showStatus(variant.url);
         }
       });
 
       els.videoList.appendChild(node);
     }
   }
+
+  function closeAllMenus() {
+    document.querySelectorAll('.split-btn__menu').forEach((m) => m.classList.add('hidden'));
+    document.querySelectorAll('.split-btn__toggle').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+  }
+  document.addEventListener('click', closeAllMenus);
 
   async function loadVideos() {
     const response = await sendToContentScript({ type: 'SVD_GET_VIDEOS' });

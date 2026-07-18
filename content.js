@@ -30,6 +30,20 @@
     }
   }
 
+  /**
+   * Miniatura de respaldo para cuando ningún <video> tiene `poster` — muy
+   * común en sitios que muestran la vista previa con una imagen aparte
+   * (CSS/otro <img>) en vez del atributo poster nativo. `og:image` es el
+   * metadato más consistente entre sitios para "la imagen de este video".
+   */
+  function pageThumbnail() {
+    return (
+      document.querySelector('meta[property="og:image"]')?.content ||
+      document.querySelector('link[rel="image_src"]')?.href ||
+      null
+    );
+  }
+
   function reportBadge() {
     const count = scan().length;
     chrome.runtime.sendMessage({ type: 'SVD_BADGE_COUNT', count }, () => {
@@ -53,7 +67,7 @@
     if (message.type === 'SVD_GET_VIDEOS') {
       (async () => {
         const videos = await enrichWithSize(scan());
-        sendResponse({ ok: true, domain: getDomain(), videos });
+        sendResponse({ ok: true, domain: getDomain(), videos, pageThumbnail: pageThumbnail() });
       })();
       return true; // respuesta asíncrona
     }

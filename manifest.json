@@ -39,7 +39,7 @@
     }
   ],
 
-  "permissions": ["storage", "activeTab", "downloads", "notifications"],
+  "permissions": ["storage", "activeTab", "downloads", "notifications", "webRequest", "webNavigation", "nativeMessaging"],
   "host_permissions": ["<all_urls>"],
 
   "minimum_chrome_version": "102"

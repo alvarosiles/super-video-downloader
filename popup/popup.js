@@ -119,12 +119,17 @@
         const variant = video.variants[Number(qualitySelect.value)];
         downloadBtn.disabled = true;
         try {
-          await window.SVDDownloader.startDownload(variant, local.settings, local.domain);
-          showStatus(`${t(lang, 'download')}: ${variant.filename}`);
+          if (variant.needsNativeHost) {
+            await downloadViaNativeHost(variant, downloadBtn);
+          } else {
+            await window.SVDDownloader.startDownload(variant, local.settings, local.domain);
+            showStatus(`${t(lang, 'download')}: ${variant.filename}`);
+          }
         } catch (err) {
           showStatus(err.message || 'Error');
         } finally {
           downloadBtn.disabled = !variant.downloadable;
+          downloadBtn.textContent = t(lang, 'download');
         }
       });
 
@@ -153,6 +158,105 @@
     }
   }
 
+  /**
+   * Descarga un stream HLS/DASH pasando por el host nativo (native-host/).
+   * A diferencia de SVDDownloader.startDownload (chrome.downloads sobre una
+   * URL directa), aquí no hay un solo archivo que guardar: el host corre
+   * ffmpeg para reconstruir los segmentos, y reporta progreso en vivo por
+   * broadcast mientras el popup siga abierto.
+   */
+  /**
+   * Cabeceras a mandarle a ffmpeg junto con la URL del manifiesto. Muchos
+   * CDNs de streaming comprueban Referer/Origin (y a veces el User-Agent)
+   * para rechazar peticiones que no vienen "del reproductor real" — sin
+   * esto, ffmpeg recibe 403 aunque la URL detectada sea correcta.
+   */
+  function nativeDownloadHeaders() {
+    const headers = { 'User-Agent': navigator.userAgent };
+    if (local.tabUrl) {
+      headers.Referer = local.tabUrl;
+      try {
+        headers.Origin = new URL(local.tabUrl).origin;
+      } catch (_err) {}
+    }
+    return headers;
+  }
+
+  function downloadViaNativeHost(variant, downloadBtn) {
+    const lang = local.settings.language;
+    return new Promise((resolve, reject) => {
+      const onProgress = (message) => {
+        if (!message || message.url !== variant.url) return;
+        if (message.type === 'SVD_NATIVE_PROGRESS') {
+          downloadBtn.textContent = message.percent != null ? `${message.percent}%` : t(lang, 'download');
+        } else if (message.type === 'SVD_NATIVE_DONE') {
+          chrome.runtime.onMessage.removeListener(onProgress);
+          showStatus(`${t(lang, 'download')}: ${variant.filename}`);
+          resolve();
+        } else if (message.type === 'SVD_NATIVE_ERROR') {
+          chrome.runtime.onMessage.removeListener(onProgress);
+          reject(new Error(message.error || 'Error del host nativo'));
+        }
+      };
+      chrome.runtime.onMessage.addListener(onProgress);
+
+      chrome.runtime.sendMessage(
+        {
+          type: 'SVD_NATIVE_DOWNLOAD',
+          url: variant.url,
+          filename: variant.filename,
+          site: local.domain,
+          headers: nativeDownloadHeaders(),
+        },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            chrome.runtime.onMessage.removeListener(onProgress);
+            reject(new Error('No se pudo conectar con el host nativo. ¿Está instalado? Ver native-host/README.md'));
+            return;
+          }
+          if (response && response.ok === false) {
+            chrome.runtime.onMessage.removeListener(onProgress);
+            reject(new Error(response.error || 'Error del host nativo'));
+          }
+          // response.ok === true ya se resolvió arriba vía SVD_NATIVE_DONE.
+        }
+      );
+    });
+  }
+
+  const STREAM_QUALITY_RE = /(\d{3,4}p|4k|fhd|hd|sd)/i;
+
+  /**
+   * Un mismo video HLS/DASH suele generar VARIAS peticiones de manifiesto
+   * (el maestro + una por cada calidad que referencia) — sin agrupar, cada
+   * una aparecía como una tarjeta duplicada idéntica en el popup. Aquí se
+   * combinan todas las detectadas en la pestaña en un solo item con
+   * selector de calidad, igual que ya se hace con los <video>/<source>.
+   */
+  function streamsToVideos(streams, pageTitle) {
+    if (streams.length === 0) return [];
+    const filename = `${(pageTitle || 'video').replace(/[\\/:*?"<>|]/g, '_').slice(0, 80)}.mp4`;
+
+    const variants = streams.map((stream, index) => {
+      const kind = stream.kind === 'dash' ? 'DASH' : 'HLS';
+      const match = STREAM_QUALITY_RE.exec(stream.url);
+      return {
+        url: stream.url,
+        filename,
+        mime: stream.kind === 'dash' ? 'application/dash+xml' : 'application/x-mpegURL',
+        width: null,
+        height: null,
+        duration: null,
+        qualityLabel: match ? `${kind} ${match[1].toUpperCase()}` : `${kind} #${index + 1}`,
+        downloadable: true,
+        needsNativeHost: true,
+        sizeBytes: null,
+      };
+    });
+
+    return [{ id: 'stream-group', filename, poster: null, duration: null, selectedIndex: 0, variants }];
+  }
+
   function closeAllMenus() {
     document.querySelectorAll('.split-btn__menu').forEach((m) => m.classList.add('hidden'));
     document.querySelectorAll('.split-btn__toggle').forEach((b) => b.setAttribute('aria-expanded', 'false'));
@@ -160,10 +264,26 @@
   document.addEventListener('click', closeAllMenus);
 
   async function loadVideos() {
-    const response = await sendToContentScript({ type: 'SVD_GET_VIDEOS' });
+    const [response, streamsResponse] = await Promise.all([
+      sendToContentScript({ type: 'SVD_GET_VIDEOS' }),
+      new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: 'SVD_GET_STREAMS', tabId: local.tabId }, (r) => {
+          void chrome.runtime.lastError;
+          resolve(r);
+        });
+      }),
+    ]);
+
+    const streams = streamsResponse && streamsResponse.ok ? streamsResponse.streams : [];
+    const streamVideos = streamsToVideos(streams, local.pageTitle);
+
     if (response && response.ok) {
       local.domain = response.domain;
-      renderVideos(response.videos);
+      const fallbackPoster = response.pageThumbnail || null;
+      const videos = [...response.videos, ...streamVideos].map((v) => ({ ...v, poster: v.poster || fallbackPoster }));
+      renderVideos(videos);
+    } else if (streamVideos.length > 0) {
+      renderVideos(streamVideos);
     } else {
       renderVideos([]);
       showStatus('Esta página no permite detectar videos.');
@@ -178,6 +298,8 @@
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab) return;
     local.tabId = tab.id;
+    local.pageTitle = tab.title || '';
+    local.tabUrl = tab.url || '';
 
     try {
       local.domain = new URL(tab.url).hostname.replace(/^www\./i, '');

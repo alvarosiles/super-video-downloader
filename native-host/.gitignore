@@ -1,0 +1,4 @@
+node_modules/
+run-host.bat
+run-host.sh
+com.superviddownloader.host.json

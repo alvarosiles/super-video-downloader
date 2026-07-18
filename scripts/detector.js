@@ -175,20 +175,41 @@
       });
     });
 
-    candidatesFromDownloadLinks().forEach((candidate) => {
-      if (!candidate.url || seenUrls.has(candidate.url)) return;
-      seenUrls.add(candidate.url);
-      items.push({
-        id: `svd-${items.length}-${candidate.url.length}`,
-        filename: filenameFromUrl(candidate.url, document.title, candidate.mime),
-        poster: null,
-        duration: candidate.duration,
-        variants: [candidateToVariant(candidate)],
-        selectedIndex: 0,
+    // Los enlaces de descarga sueltos solo se buscan si la página no tiene
+    // ningún <video> — en sitios con reproductor, casi cualquier <a href>
+    // que por casualidad termine en ".mp4" (compartir, tracking, etc.) es
+    // ruido, no una calidad alternativa real del video.
+    if (items.length === 0) {
+      candidatesFromDownloadLinks().forEach((candidate) => {
+        if (!candidate.url || seenUrls.has(candidate.url)) return;
+        seenUrls.add(candidate.url);
+        items.push({
+          id: `svd-${items.length}-${candidate.url.length}`,
+          filename: filenameFromUrl(candidate.url, document.title, candidate.mime),
+          poster: null,
+          duration: candidate.duration,
+          variants: [candidateToVariant(candidate)],
+          selectedIndex: 0,
+        });
       });
-    });
+    }
 
-    return items;
+    return filterLikelyAds(items);
+  }
+
+  /**
+   * Los banners publicitarios en video (slots, casinos, etc.) suelen ser
+   * clips muy cortos junto al contenido real de la página. Si hay al menos
+   * un video "normal" (más de 25s, o de duración desconocida), se descartan
+   * los demás candidatos de menos de 25s — nunca al revés: si TODO lo
+   * detectado es corto, se muestra igual (puede ser contenido legítimo,
+   * p. ej. un reel).
+   */
+  function filterLikelyAds(items) {
+    const AD_MAX_DURATION = 25;
+    const hasLongVideo = items.some((item) => item.duration == null || item.duration >= AD_MAX_DURATION);
+    if (!hasLongVideo) return items;
+    return items.filter((item) => item.duration == null || item.duration >= AD_MAX_DURATION);
   }
 
   /**

@@ -23,6 +23,11 @@
     protectedNotice: document.getElementById('protectedNotice'),
     status: document.getElementById('statusMessage'),
     template: document.getElementById('videoItemTemplate'),
+    rescanBtn: document.getElementById('rescanBtn'),
+    historyBtn: document.getElementById('historyBtn'),
+    downloadsFolderBtn: document.getElementById('downloadsFolderBtn'),
+    clearHistoryBtn: document.getElementById('clearHistoryBtn'),
+    helpBtn: document.getElementById('helpBtn'),
   };
 
   const local = { tabId: null, domain: '', settings: null };
@@ -89,6 +94,9 @@
       const progressFill = node.querySelector('.video-item__progress-fill');
       const progressLabel = node.querySelector('.video-item__progress-label');
       const cancelBtn = node.querySelector('.btn--cancel');
+      const doneBox = node.querySelector('.video-item__done');
+      const playBtn = node.querySelector('.btn--play');
+      const folderBtn = node.querySelector('.icon-btn--folder');
       downloadBtn.textContent = t(lang, 'download');
       cancelBtn.textContent = t(lang, 'cancel');
 
@@ -128,6 +136,15 @@
         }
       }
 
+      function setDone(downloadId) {
+        downloadBtn.classList.add('hidden');
+        copyBtn.classList.add('hidden');
+        progressBox.classList.add('hidden');
+        doneBox.classList.remove('hidden');
+        playBtn.onclick = () => chrome.downloads.open(downloadId);
+        folderBtn.onclick = () => chrome.downloads.show(downloadId);
+      }
+
       downloadBtn.addEventListener('click', async () => {
         const variant = video.variants[Number(qualitySelect.value)];
         try {
@@ -136,18 +153,20 @@
           } else if (variant.kind === 'hls') {
             setDownloading(true);
             cancelBtn.onclick = () => cancelWasmDownload(variant.url);
-            await downloadViaWasm(variant, progressFill, progressLabel);
+            const downloadId = await downloadViaWasm(variant, progressFill, progressLabel);
             showStatus(`${t(lang, 'download')}: ${variant.filename}`);
+            setDone(downloadId);
+            return;
           } else {
             downloadBtn.disabled = true;
-            await window.SVDDownloader.startDownload(variant, local.settings, local.domain);
+            const downloadId = await window.SVDDownloader.startDownload(variant, local.settings, local.domain);
             showStatus(`${t(lang, 'download')}: ${variant.filename}`);
-            downloadBtn.disabled = !variant.downloadable;
+            setDone(downloadId);
+            return;
           }
         } catch (err) {
           showStatus(err.message || 'Error');
           downloadBtn.disabled = !variant.downloadable;
-        } finally {
           setDownloading(false);
         }
       });
@@ -232,7 +251,7 @@
             return;
           }
           if (response && response.ok) {
-            resolve();
+            resolve(response.downloadId);
           } else {
             reject(new Error((response && response.error) || 'Error reconstruyendo el stream'));
           }
@@ -259,7 +278,11 @@
     const filename = `${(pageTitle || 'video').replace(/[\\/:*?"<>|]/g, '_').slice(0, 80)}.mp4`;
 
     const variants = streams.map((stream, index) => {
-      const kind = stream.kind === 'dash' ? 'DASH' : 'HLS';
+      // El badge muestra el formato de SALIDA (siempre .mp4, sea cual sea
+      // el protocolo de origen) — "HLS 720P" confundía, porque el archivo
+      // que termina descargando el usuario es un MP4 normal, no un .m3u8.
+      // DASH sigue etiquetado aparte porque todavía no se puede descargar.
+      const label = stream.kind === 'dash' ? 'DASH' : 'MP4';
       const match = STREAM_QUALITY_RE.exec(stream.url);
       return {
         url: stream.url,
@@ -268,7 +291,7 @@
         width: null,
         height: null,
         duration: null,
-        qualityLabel: match ? `${kind} ${match[1].toUpperCase()}` : `${kind} #${index + 1}`,
+        qualityLabel: match ? `${label} ${match[1].toUpperCase()}` : `${label} #${index + 1}`,
         downloadable: true,
         kind: stream.kind,
         sizeBytes: null,
@@ -292,13 +315,19 @@
     const streams = streamsResponse && streamsResponse.ok ? streamsResponse.streams : [];
     const streamVideos = streamsToVideos(streams, local.pageTitle);
 
-    if (response && response.ok) {
-      local.domain = response.domain;
-      const fallbackPoster = response.pageThumbnail || null;
-      const videos = [...response.videos, ...streamVideos].map((v) => ({ ...v, poster: v.poster || fallbackPoster }));
+    // Si ya se detectó un stream HLS/DASH por red, es casi siempre EL video
+    // de la página (el caso típico de esta extensión: una página, un
+    // video). El <video> bloqueado (blob:) que escanea el DOM y cualquier
+    // enlace <a href="...mp4"> suelto son el mismo contenido visto desde
+    // otro ángulo — mostrarlos igual solo agrega tarjetas duplicadas o
+    // bloqueadas sin ninguna opción real nueva.
+    const domVideos = streamVideos.length > 0 ? [] : response && response.ok ? response.videos : [];
+
+    if (streamVideos.length > 0 || (response && response.ok)) {
+      local.domain = (response && response.domain) || local.domain;
+      const fallbackPoster = (response && response.pageThumbnail) || null;
+      const videos = [...domVideos, ...streamVideos].map((v) => ({ ...v, poster: v.poster || fallbackPoster }));
       renderVideos(videos);
-    } else if (streamVideos.length > 0) {
-      renderVideos(streamVideos);
     } else {
       renderVideos([]);
       showStatus('Esta página no permite detectar videos.');
@@ -338,6 +367,28 @@
 
   els.settingsBtn.addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
+  });
+
+  els.rescanBtn.addEventListener('click', async () => {
+    await loadVideos();
+    showStatus('¿Sigue sin aparecer? Recarga la página y asegúrate de que el video ya empezó a reproducirse.');
+  });
+
+  els.historyBtn.addEventListener('click', () => {
+    chrome.runtime.openOptionsPage();
+  });
+
+  els.downloadsFolderBtn.addEventListener('click', () => {
+    chrome.downloads.showDefaultFolder();
+  });
+
+  els.clearHistoryBtn.addEventListener('click', async () => {
+    await window.SVDStorage.clearHistory();
+    showStatus('Historial borrado.');
+  });
+
+  els.helpBtn.addEventListener('click', () => {
+    chrome.tabs.create({ url: 'https://github.com/alvarosiles/super-video-downloader#readme' });
   });
 
   init();

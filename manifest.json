@@ -39,7 +39,7 @@
     }
   ],
 
-  "permissions": ["storage", "activeTab", "downloads", "notifications", "webRequest", "webNavigation", "offscreen", "declarativeNetRequest"],
+  "permissions": ["storage", "activeTab", "downloads", "downloads.open", "notifications", "webRequest", "webNavigation", "offscreen", "declarativeNetRequest"],
   "host_permissions": ["<all_urls>"],
 
   "content_security_policy": {

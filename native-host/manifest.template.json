@@ -1,7 +1,0 @@
-{
-  "name": "com.superviddownloader.host",
-  "description": "Super Video Downloader — host nativo (reconstruye streams HLS/DASH con ffmpeg)",
-  "path": "__RUNNER_PATH__",
-  "type": "stdio",
-  "allowed_origins": ["chrome-extension://__EXTENSION_ID__/"]
-}

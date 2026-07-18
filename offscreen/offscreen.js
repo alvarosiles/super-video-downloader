@@ -4,16 +4,17 @@
  * Vive en un offscreen document (chrome.offscreen), el único lugar de una
  * extensión MV3 donde se puede correr ffmpeg.wasm con normalidad (Worker +
  * WebAssembly) sin depender de nada fuera del propio paquete de la
- * extensión — así este flujo no necesita instalar nada aparte (a
- * diferencia de native-host/) y es compatible con la Chrome Web Store.
+ * extensión — así este flujo no necesita instalar nada aparte y es
+ * compatible con la Chrome Web Store.
  *
  * Reconstruye streams HLS sin cifrar: descarga el manifiesto y sus
  * segmentos con fetch() (las cabeceras Referer/Origin las fuerza
  * background.js con declarativeNetRequest antes de pedir esto, porque
- * fetch() nunca puede poner esos headers por sí solo), los concatena, y
- * usa ffmpeg.wasm con "-c copy" (sin recodificar) para dejarlos en un solo
- * .mp4. DASH y streams cifrados (#EXT-X-KEY) no están soportados: se
- * informa el error en vez de producir un archivo corrupto.
+ * fetch() nunca puede poner esos headers por sí solo), escribe cada
+ * segmento al filesystem virtual de ffmpeg.wasm y usa su demuxer "concat"
+ * con "-c copy" (sin recodificar) para dejarlos en un solo .mp4. DASH y
+ * streams cifrados (#EXT-X-KEY) no están soportados: se informa el error
+ * en vez de producir un archivo corrupto.
  */
 'use strict';
 
@@ -76,8 +77,8 @@ async function resolveSegments(manifestUrl) {
  * varios cientos de MB durante las pruebas. Escribir uno por uno y usar el
  * demuxer "concat" de ffmpeg para unirlos reduce bastante el pico de
  * memoria en el lado de JS (aunque el límite real sigue siendo la RAM
- * disponible para WASM — streams muy largos pueden seguir fallando; para
- * esos casos existe la alternativa de native-host/, que escribe a disco).
+ * disponible para WASM — streams extremadamente largos pueden seguir
+ * fallando por memoria, ya que todo se procesa en el navegador).
  */
 async function downloadHls({ url, filename }, onProgress, signal) {
   const segments = await resolveSegments(url);

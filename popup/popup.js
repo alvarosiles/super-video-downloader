@@ -186,20 +186,33 @@
 
   /**
    * Descarga un stream HLS reconstruyéndolo con ffmpeg.wasm en un offscreen
-   * document (ver offscreen/offscreen.js) — sin instalar nada aparte, a
-   * diferencia del host nativo (native-host/), lo que hace esto compatible
-   * con publicar la extensión en la Chrome Web Store sin pasos extra para
-   * el usuario. El progreso llega por broadcast mientras el popup siga
-   * abierto.
+   * document (ver offscreen/offscreen.js) — sin instalar nada aparte, lo
+   * que hace esto compatible con publicar la extensión en la Chrome Web
+   * Store sin pasos extra para el usuario. El progreso llega por broadcast
+   * mientras el popup siga abierto.
    */
-  function downloadViaWasm(variant, downloadBtn) {
-    const lang = local.settings.language;
+  function downloadViaWasm(variant, progressFill, progressLabel) {
     return new Promise((resolve, reject) => {
+      let lastBytes = 0;
+      let lastTime = Date.now();
+
       const onProgress = (message) => {
-        if (!message || message.url !== variant.url) return;
-        if (message.type === 'SVD_WASM_PROGRESS') {
-          downloadBtn.textContent = message.percent != null ? `${message.percent}%` : t(lang, 'download');
+        if (!message || message.url !== variant.url || message.type !== 'SVD_WASM_PROGRESS') return;
+        if (message.percent != null) progressFill.style.width = `${message.percent}%`;
+
+        let speedText = '';
+        if (message.bytesSoFar != null) {
+          const now = Date.now();
+          const deltaBytes = message.bytesSoFar - lastBytes;
+          const deltaSeconds = (now - lastTime) / 1000;
+          if (deltaSeconds > 0.2) {
+            const speed = formatBytes(deltaBytes / deltaSeconds);
+            if (speed) speedText = ` · ${speed}/s`;
+            lastBytes = message.bytesSoFar;
+            lastTime = now;
+          }
         }
+        progressLabel.textContent = `${message.percent ?? 0}%${speedText}`;
       };
       chrome.runtime.onMessage.addListener(onProgress);
 
@@ -219,7 +232,6 @@
             return;
           }
           if (response && response.ok) {
-            showStatus(`${t(lang, 'download')}: ${variant.filename}`);
             resolve();
           } else {
             reject(new Error((response && response.error) || 'Error reconstruyendo el stream'));
@@ -227,6 +239,10 @@
         }
       );
     });
+  }
+
+  function cancelWasmDownload(url) {
+    chrome.runtime.sendMessage({ type: 'SVD_WASM_CANCEL', url }, () => void chrome.runtime.lastError);
   }
 
   const STREAM_QUALITY_RE = /(\d{3,4}p|4k|fhd|hd|sd)/i;
@@ -261,12 +277,6 @@
 
     return [{ id: 'stream-group', filename, poster: null, duration: null, selectedIndex: 0, variants }];
   }
-
-  function closeAllMenus() {
-    document.querySelectorAll('.split-btn__menu').forEach((m) => m.classList.add('hidden'));
-    document.querySelectorAll('.split-btn__toggle').forEach((b) => b.setAttribute('aria-expanded', 'false'));
-  }
-  document.addEventListener('click', closeAllMenus);
 
   async function loadVideos() {
     const [response, streamsResponse] = await Promise.all([

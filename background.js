@@ -14,10 +14,10 @@
  *      cuando el sitio usa hls.js/dash.js (el elemento reproduce un blob:
  *      generado por MediaSource), así que la única forma honesta de verla
  *      es observar la petición de red real, no inventarla.
- *   4. Hacer de puente hacia el host nativo (ver native-host/) por
- *      chrome.runtime.connectNative: le pasa la URL del manifiesto (sin
- *      tocar DRM ni contenido cifrado) para que ffmpeg reconstruya el
- *      stream en un único archivo, y reenvía el progreso al popup.
+ *   4. Reconstruir esos streams con ffmpeg.wasm en un offscreen document
+ *      (ver offscreen/offscreen.js) y reenviar el progreso al popup — sin
+ *      tocar DRM ni contenido cifrado, y sin depender de nada instalado
+ *      fuera de la extensión.
  *
  * Carga utils.js y storage.js como scripts clásicos (importScripts, no
  * módulos ES) para reutilizar exactamente la misma lógica que el resto de
@@ -26,8 +26,6 @@
  */
 
 importScripts('scripts/utils.js', 'scripts/storage.js');
-
-const NATIVE_HOST_NAME = 'com.superviddownloader.host';
 
 // downloadId -> { site, sizeHint }, solo mientras la descarga está en curso.
 const pendingDownloads = new Map();
@@ -98,16 +96,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const tabStreams = streamsByTab.get(message.tabId);
     sendResponse({ ok: true, streams: tabStreams ? Array.from(tabStreams.values()) : [] });
     return false;
-  }
-
-  if (message.type === 'SVD_NATIVE_PROBE') {
-    probeNativeHost().then(sendResponse);
-    return true;
-  }
-
-  if (message.type === 'SVD_NATIVE_DOWNLOAD') {
-    startNativeDownload(message).then(sendResponse);
-    return true;
   }
 
   if (message.type === 'SVD_WASM_DOWNLOAD') {
@@ -223,99 +211,6 @@ async function startWasmDownload({ url, filename, headers, site, settings }) {
   } catch (err) {
     return { ok: false, error: err.message || String(err) };
   }
-}
-
-/** Comprueba si el host nativo (native-host/) está instalado y responde. */
-function probeNativeHost() {
-  return new Promise((resolve) => {
-    let settled = false;
-    let port;
-    try {
-      port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
-    } catch (err) {
-      resolve({ ok: false, error: err.message });
-      return;
-    }
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      try { port.disconnect(); } catch (_err) {}
-      resolve(result);
-    };
-    port.onMessage.addListener((msg) => {
-      if (msg && msg.type === 'probe-result') finish({ ok: true, ffmpeg: msg.ffmpeg || null });
-    });
-    port.onDisconnect.addListener(() => {
-      finish({ ok: false, error: chrome.runtime.lastError?.message || 'No se pudo conectar con el host nativo' });
-    });
-    port.postMessage({ type: 'probe' });
-    setTimeout(() => finish({ ok: false, error: 'Timeout esperando al host nativo' }), 4000);
-  });
-}
-
-/**
- * Pide al host nativo que reconstruya `manifestUrl` (HLS/DASH) con ffmpeg y
- * lo guarde como un único archivo. Reenvía el progreso en vivo al popup vía
- * broadcast (chrome.runtime.sendMessage) mientras la conexión sigue abierta;
- * si el popup ya se cerró, simplemente nadie escucha esos mensajes.
- */
-function startNativeDownload({ url, filename, headers, site }) {
-  return new Promise((resolve) => {
-    let port;
-    try {
-      port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
-    } catch (err) {
-      resolve({ ok: false, error: err.message });
-      return;
-    }
-
-    const broadcast = (payload) => chrome.runtime.sendMessage(payload, () => void chrome.runtime.lastError);
-
-    port.onMessage.addListener(async (msg) => {
-      if (!msg || typeof msg.type !== 'string') return;
-
-      if (msg.type === 'progress') {
-        broadcast({ type: 'SVD_NATIVE_PROGRESS', url, percent: msg.percent ?? null });
-        return;
-      }
-
-      if (msg.type === 'done') {
-        try { port.disconnect(); } catch (_err) {}
-        await self.SVDStorage.addHistoryEntry({
-          id: `native-${Date.now()}`,
-          date: Date.now(),
-          filename: msg.filename || filename,
-          size: msg.sizeBytes || 0,
-          site: site || '',
-          url,
-        });
-        const settings = await self.SVDStorage.getSettings();
-        if (settings.showNotifications) {
-          chrome.notifications.create({
-            type: 'basic',
-            iconUrl: 'assets/icons/icon128.png',
-            title: self.SVDUtils.t(settings.language, 'appName'),
-            message: msg.filename || filename,
-          });
-        }
-        broadcast({ type: 'SVD_NATIVE_DONE', url, path: msg.path });
-        resolve({ ok: true, path: msg.path });
-        return;
-      }
-
-      if (msg.type === 'error') {
-        try { port.disconnect(); } catch (_err) {}
-        broadcast({ type: 'SVD_NATIVE_ERROR', url, error: msg.message });
-        resolve({ ok: false, error: msg.message });
-      }
-    });
-
-    port.onDisconnect.addListener(() => {
-      resolve({ ok: false, error: chrome.runtime.lastError?.message || 'El host nativo se desconectó' });
-    });
-
-    port.postMessage({ type: 'download', url, filename, headers: headers || {} });
-  });
 }
 
 chrome.downloads.onChanged.addListener(async (delta) => {

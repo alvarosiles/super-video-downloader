@@ -108,14 +108,6 @@
     return `${base}.${ext}`;
   }
 
-  function debounce(fn, wait) {
-    let timer = null;
-    return (...args) => {
-      clearTimeout(timer);
-      timer = setTimeout(() => fn(...args), wait);
-    };
-  }
-
   // ── i18n ────────────────────────────────────────────────────────────────
   // Diccionario mínimo (es/en) para los textos de popup y options. Los
   // elementos marcan su clave de traducción con data-i18n="clave" (para
@@ -124,15 +116,13 @@
     es: {
       appName: 'Super Video Downloader',
       currentSite: 'Sitio actual',
-      videosFound_one: '{n} video detectado',
-      videosFound_other: '{n} videos detectados',
-      videosFound_zero: 'Sin videos detectados',
       emptyState: 'No se detectaron videos descargables en este sitio.',
       refresh: 'Refresh',
       settings: 'Settings',
       download: 'Download',
       copyUrl: 'Copy URL',
       copied: 'URL copiada',
+      cancel: 'Detener',
       unknown: 'Desconocido',
       notDownloadable: 'No disponible para descarga directa',
       notDownloadableTooltip:
@@ -171,6 +161,7 @@
       download: 'Download',
       copyUrl: 'Copy URL',
       copied: 'URL copied',
+      cancel: 'Stop',
       unknown: 'Unknown',
       notDownloadable: 'Not directly downloadable',
       notDownloadableTooltip:
@@ -210,12 +201,6 @@
     return str;
   }
 
-  function pluralKey(base, count) {
-    if (count === 0) return `${base}_zero`;
-    if (count === 1) return `${base}_one`;
-    return `${base}_other`;
-  }
-
   /** Aplica las traducciones a todo el árbol `root` según data-i18n[-placeholder]. */
   function applyTranslations(root, lang) {
     root.querySelectorAll('[data-i18n]').forEach((el) => {
@@ -234,9 +219,7 @@
     extFromUrl,
     sanitizeFilename,
     filenameFromUrl,
-    debounce,
     t,
-    pluralKey,
     applyTranslations,
   };
 })(typeof window !== 'undefined' ? window : self);

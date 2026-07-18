@@ -72,15 +72,17 @@
         <div class="video-item__footer">
           <select class="video-item__quality"></select>
           <span class="video-item__size"></span>
-          <div class="split-btn">
-            <button class="split-btn__main" type="button" data-i18n="download">Download</button>
-            <button class="split-btn__toggle" type="button" title="More" aria-haspopup="true" aria-expanded="false">
-              <svg viewBox="0 0 24 24" focusable="false"><path d="M7 10l5 5 5-5z"/></svg>
-            </button>
-            <div class="split-btn__menu hidden">
-              <button class="split-btn__menu-item btn--copy" type="button" data-i18n="copyUrl">Copy URL</button>
-            </div>
+          <button class="icon-btn icon-btn--copy" type="button" title="Copy URL">
+            <svg viewBox="0 0 24 24" focusable="false"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+          </button>
+          <button class="btn btn--download" type="button" data-i18n="download">Download</button>
+        </div>
+        <div class="video-item__progress hidden">
+          <div class="video-item__progress-track">
+            <div class="video-item__progress-fill"></div>
           </div>
+          <span class="video-item__progress-label"></span>
+          <button class="btn btn--cancel" type="button" data-i18n="cancel">Detener</button>
         </div>
       </div>
     </article>

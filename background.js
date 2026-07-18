@@ -110,8 +110,120 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === 'SVD_WASM_DOWNLOAD') {
+    startWasmDownload(message).then(sendResponse);
+    return true;
+  }
+
   return false;
 });
+
+// ── Descarga sin instalar nada aparte: ffmpeg.wasm en un offscreen document ──
+
+const WASM_HEADER_RULE_ID = 9001;
+
+/** Crea el offscreen document si no existe ya uno (solo puede haber uno por extensión). */
+async function ensureOffscreenDocument() {
+  const existing = await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] });
+  if (existing.length > 0) return;
+  await chrome.offscreen.createDocument({
+    url: 'offscreen/offscreen.html',
+    reasons: ['WORKERS'],
+    justification: 'Ejecutar ffmpeg.wasm para reconstruir streams HLS sin depender de una app externa.',
+  });
+}
+
+/**
+ * chrome.offscreen.createDocument() resuelve en cuanto el documento existe,
+ * no cuando su script terminó de registrar el listener de mensajes — sin
+ * esto, el primer sendMessage puede llegar antes y fallar con "Receiving
+ * end does not exist" (carrera de inicialización, no del lado de quien
+ * llama).
+ */
+async function sendToOffscreen(message, attempts = 20) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await chrome.runtime.sendMessage(message);
+    } catch (err) {
+      if (i === attempts - 1 || !/Receiving end does not exist/.test(err.message || '')) throw err;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+  }
+}
+
+/**
+ * fetch() nunca puede poner Referer/Origin (son "forbidden headers" del
+ * propio estándar, sin excepción para extensiones) — declarativeNetRequest
+ * es la única forma de lograrlo en MV3. La regla se agrega justo antes de
+ * pedir el manifiesto y se quita al terminar, para no afectar el resto del
+ * tráfico del usuario.
+ */
+async function withHeaderOverride(manifestUrl, headers, fn) {
+  let domain = null;
+  try {
+    domain = new URL(manifestUrl).hostname;
+  } catch (_err) {}
+
+  const rule = domain && {
+    id: WASM_HEADER_RULE_ID,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: Object.entries(headers || {})
+        .filter(([, value]) => value)
+        .map(([header, value]) => ({ header, operation: 'set', value })),
+    },
+    condition: { urlFilter: `||${domain}^`, resourceTypes: ['xmlhttprequest', 'media', 'other'] },
+  };
+
+  if (rule && rule.action.requestHeaders.length > 0) {
+    await chrome.declarativeNetRequest.updateDynamicRules({ addRules: [rule], removeRuleIds: [WASM_HEADER_RULE_ID] });
+  }
+  try {
+    return await fn();
+  } finally {
+    await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: [WASM_HEADER_RULE_ID] }).catch(() => {});
+  }
+}
+
+/**
+ * Orquesta la descarga vía ffmpeg.wasm: agrega la regla de cabeceras, le
+ * pide al offscreen document que reconstruya el stream, y con el blob: URL
+ * resultante dispara chrome.downloads.download — así el historial y la
+ * notificación salen gratis del listener de chrome.downloads.onChanged que
+ * ya existe más abajo, igual que cualquier descarga directa.
+ */
+async function startWasmDownload({ url, filename, headers, site, settings }) {
+  try {
+    await ensureOffscreenDocument();
+
+    const result = await withHeaderOverride(url, headers, () =>
+      sendToOffscreen({ type: 'SVD_WASM_DOWNLOAD', url, filename })
+    );
+
+    if (!result || !result.ok) {
+      return { ok: false, error: (result && result.error) || 'El offscreen document no respondió' };
+    }
+
+    const downloadId = await new Promise((resolve, reject) => {
+      chrome.downloads.download(
+        { url: result.blobUrl, filename: result.filename, saveAs: !(settings && settings.autoName) },
+        (id) => {
+          if (chrome.runtime.lastError || id === undefined) {
+            reject(new Error(chrome.runtime.lastError?.message || 'No se pudo iniciar la descarga'));
+            return;
+          }
+          resolve(id);
+        }
+      );
+    });
+
+    pendingDownloads.set(downloadId, { site: site || '', sizeHint: result.sizeBytes || 0 });
+    return { ok: true, downloadId };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
 
 /** Comprueba si el host nativo (native-host/) está instalado y responde. */
 function probeNativeHost() {

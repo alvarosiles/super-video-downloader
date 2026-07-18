@@ -83,12 +83,14 @@
       const badge = node.querySelector('.protected-badge');
       const sizeEl = node.querySelector('.video-item__size');
       const qualitySelect = node.querySelector('.video-item__quality');
-      const downloadBtn = node.querySelector('.split-btn__main');
-      const toggleBtn = node.querySelector('.split-btn__toggle');
-      const menu = node.querySelector('.split-btn__menu');
-      const copyBtn = node.querySelector('.btn--copy');
+      const downloadBtn = node.querySelector('.btn--download');
+      const copyBtn = node.querySelector('.icon-btn--copy');
+      const progressBox = node.querySelector('.video-item__progress');
+      const progressFill = node.querySelector('.video-item__progress-fill');
+      const progressLabel = node.querySelector('.video-item__progress-label');
+      const cancelBtn = node.querySelector('.btn--cancel');
       downloadBtn.textContent = t(lang, 'download');
-      copyBtn.textContent = t(lang, 'copyUrl');
+      cancelBtn.textContent = t(lang, 'cancel');
 
       video.variants.forEach((variant, index) => {
         const option = document.createElement('option');
@@ -115,36 +117,42 @@
         applyVariant(Number(qualitySelect.value));
       });
 
+      function setDownloading(isDownloading) {
+        downloadBtn.classList.toggle('hidden', isDownloading);
+        copyBtn.classList.toggle('hidden', isDownloading);
+        qualitySelect.disabled = isDownloading || video.variants.length <= 1;
+        progressBox.classList.toggle('hidden', !isDownloading);
+        if (!isDownloading) {
+          progressFill.style.width = '0%';
+          progressLabel.textContent = '';
+        }
+      }
+
       downloadBtn.addEventListener('click', async () => {
         const variant = video.variants[Number(qualitySelect.value)];
-        downloadBtn.disabled = true;
         try {
-          if (variant.needsNativeHost) {
-            await downloadViaNativeHost(variant, downloadBtn);
+          if (variant.kind === 'dash') {
+            throw new Error('DASH todavía no está soportado (solo HLS por ahora).');
+          } else if (variant.kind === 'hls') {
+            setDownloading(true);
+            cancelBtn.onclick = () => cancelWasmDownload(variant.url);
+            await downloadViaWasm(variant, progressFill, progressLabel);
+            showStatus(`${t(lang, 'download')}: ${variant.filename}`);
           } else {
+            downloadBtn.disabled = true;
             await window.SVDDownloader.startDownload(variant, local.settings, local.domain);
             showStatus(`${t(lang, 'download')}: ${variant.filename}`);
+            downloadBtn.disabled = !variant.downloadable;
           }
         } catch (err) {
           showStatus(err.message || 'Error');
-        } finally {
           downloadBtn.disabled = !variant.downloadable;
-          downloadBtn.textContent = t(lang, 'download');
-        }
-      });
-
-      toggleBtn.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        const isOpen = !menu.classList.contains('hidden');
-        closeAllMenus();
-        if (!isOpen) {
-          menu.classList.remove('hidden');
-          toggleBtn.setAttribute('aria-expanded', 'true');
+        } finally {
+          setDownloading(false);
         }
       });
 
       copyBtn.addEventListener('click', async () => {
-        closeAllMenus();
         const variant = video.variants[Number(qualitySelect.value)];
         try {
           await navigator.clipboard.writeText(variant.url);
@@ -159,19 +167,13 @@
   }
 
   /**
-   * Descarga un stream HLS/DASH pasando por el host nativo (native-host/).
-   * A diferencia de SVDDownloader.startDownload (chrome.downloads sobre una
-   * URL directa), aquí no hay un solo archivo que guardar: el host corre
-   * ffmpeg para reconstruir los segmentos, y reporta progreso en vivo por
-   * broadcast mientras el popup siga abierto.
+   * Cabeceras a mandarle al fetch de la playlist/segmentos. Muchos CDNs de
+   * streaming comprueban Referer/Origin para rechazar peticiones que no
+   * vienen "del reproductor real" — fetch() nunca puede ponerlas por sí
+   * solo, así que background.js las fuerza con declarativeNetRequest justo
+   * antes de pedir esto (ver withHeaderOverride en background.js).
    */
-  /**
-   * Cabeceras a mandarle a ffmpeg junto con la URL del manifiesto. Muchos
-   * CDNs de streaming comprueban Referer/Origin (y a veces el User-Agent)
-   * para rechazar peticiones que no vienen "del reproductor real" — sin
-   * esto, ffmpeg recibe 403 aunque la URL detectada sea correcta.
-   */
-  function nativeDownloadHeaders() {
+  function streamDownloadHeaders() {
     const headers = { 'User-Agent': navigator.userAgent };
     if (local.tabUrl) {
       headers.Referer = local.tabUrl;
@@ -182,43 +184,46 @@
     return headers;
   }
 
-  function downloadViaNativeHost(variant, downloadBtn) {
+  /**
+   * Descarga un stream HLS reconstruyéndolo con ffmpeg.wasm en un offscreen
+   * document (ver offscreen/offscreen.js) — sin instalar nada aparte, a
+   * diferencia del host nativo (native-host/), lo que hace esto compatible
+   * con publicar la extensión en la Chrome Web Store sin pasos extra para
+   * el usuario. El progreso llega por broadcast mientras el popup siga
+   * abierto.
+   */
+  function downloadViaWasm(variant, downloadBtn) {
     const lang = local.settings.language;
     return new Promise((resolve, reject) => {
       const onProgress = (message) => {
         if (!message || message.url !== variant.url) return;
-        if (message.type === 'SVD_NATIVE_PROGRESS') {
+        if (message.type === 'SVD_WASM_PROGRESS') {
           downloadBtn.textContent = message.percent != null ? `${message.percent}%` : t(lang, 'download');
-        } else if (message.type === 'SVD_NATIVE_DONE') {
-          chrome.runtime.onMessage.removeListener(onProgress);
-          showStatus(`${t(lang, 'download')}: ${variant.filename}`);
-          resolve();
-        } else if (message.type === 'SVD_NATIVE_ERROR') {
-          chrome.runtime.onMessage.removeListener(onProgress);
-          reject(new Error(message.error || 'Error del host nativo'));
         }
       };
       chrome.runtime.onMessage.addListener(onProgress);
 
       chrome.runtime.sendMessage(
         {
-          type: 'SVD_NATIVE_DOWNLOAD',
+          type: 'SVD_WASM_DOWNLOAD',
           url: variant.url,
           filename: variant.filename,
           site: local.domain,
-          headers: nativeDownloadHeaders(),
+          headers: streamDownloadHeaders(),
+          settings: local.settings,
         },
         (response) => {
+          chrome.runtime.onMessage.removeListener(onProgress);
           if (chrome.runtime.lastError) {
-            chrome.runtime.onMessage.removeListener(onProgress);
-            reject(new Error('No se pudo conectar con el host nativo. ¿Está instalado? Ver native-host/README.md'));
+            reject(new Error('No se pudo iniciar la reconstrucción del stream.'));
             return;
           }
-          if (response && response.ok === false) {
-            chrome.runtime.onMessage.removeListener(onProgress);
-            reject(new Error(response.error || 'Error del host nativo'));
+          if (response && response.ok) {
+            showStatus(`${t(lang, 'download')}: ${variant.filename}`);
+            resolve();
+          } else {
+            reject(new Error((response && response.error) || 'Error reconstruyendo el stream'));
           }
-          // response.ok === true ya se resolvió arriba vía SVD_NATIVE_DONE.
         }
       );
     });
@@ -249,7 +254,7 @@
         duration: null,
         qualityLabel: match ? `${kind} ${match[1].toUpperCase()}` : `${kind} #${index + 1}`,
         downloadable: true,
-        needsNativeHost: true,
+        kind: stream.kind,
         sizeBytes: null,
       };
     });

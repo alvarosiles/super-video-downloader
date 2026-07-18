@@ -364,82 +364,78 @@ body {
   min-width: 0;
 }
 
-.split-btn {
-  position: relative;
-  display: flex;
+.icon-btn--copy {
+  width: 26px;
+  height: 26px;
   flex-shrink: 0;
-  border-radius: 999px;
-  overflow: visible;
 }
+.icon-btn--copy svg { width: 15px; height: 15px; }
 
-.split-btn__main,
-.split-btn__toggle {
+.btn {
   border: none;
   font-family: inherit;
   font-weight: 600;
   cursor: pointer;
-  background: var(--accent);
-  color: #fff;
   transition: background var(--transition-fast), transform var(--transition-fast), opacity var(--transition-fast);
 }
 
-.split-btn__main {
+.btn--download {
   font-size: 12px;
-  padding: 7px 12px;
-  border-radius: 999px 0 0 999px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  flex-shrink: 0;
 }
-.split-btn__main:hover { background: var(--accent-hover); }
-.split-btn__main:active { background: var(--accent-active); transform: scale(0.97); }
-.split-btn__main:disabled {
+.btn--download:hover { background: var(--accent-hover); }
+.btn--download:active { background: var(--accent-active); transform: scale(0.97); }
+.btn--download:disabled {
   background: var(--border);
   color: var(--text-secondary);
   cursor: not-allowed;
 }
 
-.split-btn__toggle {
-  display: inline-flex;
+/* Barra de progreso (streams HLS reconstruidos vía ffmpeg.wasm) */
+
+.video-item__progress {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  width: 22px;
-  border-left: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 0 999px 999px 0;
+  gap: 6px;
 }
-.split-btn__toggle svg { width: 16px; height: 16px; fill: currentColor; }
-.split-btn__toggle:hover { background: var(--accent-hover); }
-.split-btn__toggle:disabled {
-  background: var(--border);
+
+.video-item__progress-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.video-item__progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 200ms ease;
+}
+
+.video-item__progress-label {
+  font-size: 10px;
+  font-weight: 700;
   color: var(--text-secondary);
-  cursor: not-allowed;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.split-btn__menu {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 4px);
-  z-index: 5;
-  background: var(--card-hover);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow);
-  padding: 4px;
-  min-width: 110px;
+.btn--cancel {
+  font-size: 10px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(242, 139, 130, 0.15);
+  color: var(--danger);
+  flex-shrink: 0;
 }
-
-.split-btn__menu-item {
-  display: block;
-  width: 100%;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  text-align: left;
-  padding: 6px 8px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-.split-btn__menu-item:hover { background: var(--card); }
+.btn--cancel:hover { background: rgba(242, 139, 130, 0.25); }
 
 /* Estado vacío */
 

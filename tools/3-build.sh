@@ -41,6 +41,14 @@ fi
 VERSION="$(python3 -c "import json; print(json.load(open('$MANIFEST'))['version'])")"
 echo "Versión detectada: $VERSION"
 
+# La Chrome Web Store rechaza el .zip si "description" supera 132
+# caracteres — validarlo acá evita descubrirlo recién al subir el archivo.
+DESC_LEN="$(python3 -c "import json; print(len(json.load(open('$MANIFEST')).get('description','')))")"
+if [[ "$DESC_LEN" -gt 132 ]]; then
+  echo "manifest.json: 'description' tiene $DESC_LEN caracteres (máx. 132 para la Chrome Web Store)." >&2
+  exit 1
+fi
+
 # ── 2. Archivos que forman parte del paquete final ─────────────────────────
 FILES=(
   manifest.json

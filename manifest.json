@@ -3,7 +3,7 @@
   "name": "Super Video Downloader",
   "short_name": "Super Video Downloader",
   "version": "1.0.0",
-  "description": "Super Video Downloader is a modern browser extension built with Manifest V3 that detects downloadable media on supported websites and provides a simple interface to save available video files.",
+  "description": "Detects downloadable videos (including HLS streams) on the current page and lets you save them with one click.",
   "author": "alvarosiles",
   "homepage_url": "https://github.com/alvarosiles/super-video-downloader",
 

@@ -34,6 +34,13 @@ try {
 $Version = $ManifestObj.version
 Write-Output "Versión detectada: $Version"
 
+# La Chrome Web Store rechaza el .zip si "description" supera 132
+# caracteres — validarlo acá evita descubrirlo recién al subir el archivo.
+$DescLen = ($ManifestObj.description | Measure-Object -Character).Characters
+if ($DescLen -gt 132) {
+    Write-Error "manifest.json: 'description' tiene $DescLen caracteres (máx. 132 para la Chrome Web Store)."
+}
+
 # ── 2. Archivos que forman parte del paquete final ──────────────────────
 $Files = @(
     'manifest.json',

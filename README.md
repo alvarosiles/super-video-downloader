@@ -12,11 +12,10 @@ permite descargarlos con un clic, cuando el propio sitio lo permite.
 Descarga archivos con URL directa (`<video>`/`<source>` con `http(s)`/
 `data:`), y también reconstruye streams **HLS sin cifrar** (`.m3u8`) en un
 único `.mp4`, usando `ffmpeg.wasm` dentro del propio navegador — sin
-instalar nada aparte. Las fuentes `blob:`/`mediasource:` con DRM real
-(YouTube, Netflix, y la mayoría de plataformas "premium") se muestran en
-la lista para que sepas que existen, pero se marcan como **no
-descargables** a propósito: ni esta extensión ni `ffmpeg` pueden (ni
-intentan) descifrarlas.
+instalar nada aparte. Las fuentes `blob:`/`mediasource:` con DRM real se
+muestran en la lista para que sepas que existen, pero se marcan como
+**no descargables** a propósito: ni esta extensión ni `ffmpeg` pueden
+(ni intentan) descifrarlas.
 
 - **Autor:** [alvarosiles](https://github.com/alvarosiles)
 - **Contacto:** alvarosiles.developer@gmail.com
@@ -221,7 +220,7 @@ MIT — ver [LICENSE](LICENSE).
 
 ## Preguntas frecuentes
 
-**¿Puede descargar videos de YouTube/Netflix/Twitch?**
+**¿Puede descargar videos de plataformas de streaming con DRM?**
 No. Esos sitios sirven el video en fragmentos cifrados o segmentados vía
 streaming adaptativo (MSE/DRM), no como un archivo descargable directo.
 Super Video Downloader los detecta (los verás en la lista) pero los marca

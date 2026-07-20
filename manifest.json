@@ -3,7 +3,7 @@
   "name": "Super Video Downloader",
   "short_name": "Super Video Downloader",
   "version": "1.0.0",
-  "description": "Detects downloadable videos (including HLS streams) on the current page and lets you save them with one click.",
+  "description": "Detecta los videos descargables (incluidos los streams HLS) de la página actual y te permite guardarlos con un clic.",
   "author": "alvarosiles",
   "homepage_url": "https://github.com/alvarosiles/super-video-downloader",
 

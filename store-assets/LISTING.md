@@ -14,12 +14,12 @@ de enlace directo (<video>/<source> con URL http(s) o data:) y también con
 streams HLS (.m3u8) sin cifrar, que reconstruye en un único archivo .mp4
 usando ffmpeg.wasm dentro del propio navegador — sin instalar nada aparte
 ni depender de servidores externos. No elude DRM ni protecciones de
-streaming: los videos con blob:/MediaSource cifrado (YouTube, Netflix,
-plataformas "premium") se detectan pero se marcan como no descargables a
+streaming: los videos con blob:/MediaSource cifrado de plataformas con
+protección DRM se detectan pero se marcan como no descargables a
 propósito. Incluye selector de calidad, barra de progreso con velocidad,
 historial de descargas, y opciones de subcarpeta/nombre automático/tema.
 ```
-(639 caracteres — cabe con margen para el límite de 1000)
+(actualizar el conteo de caracteres al pegar en el Dashboard)
 
 ---
 
@@ -48,10 +48,10 @@ DESCARGA CON CONTROL
 
 RESPETA LAS PROTECCIONES DE STREAMING
 Esta extensión NO elude DRM, cifrado ni protecciones de streaming.
-Los videos con blob:/MediaSource cifrado — típicos de YouTube, Netflix y
-la mayoría de plataformas "premium" — se muestran en la lista para que
-sepas que existen, pero se marcan como "no disponible para descarga
-directa" a propósito: ni esta extensión ni ffmpeg pueden (ni lo intentan)
+Los videos con blob:/MediaSource cifrado — típicos de plataformas de
+streaming con protección DRM — se muestran en la lista para que sepas
+que existen, pero se marcan como "no disponible para descarga directa"
+a propósito: ni esta extensión ni ffmpeg pueden (ni lo intentan)
 descifrarlos.
 
 PERSONALIZACIÓN

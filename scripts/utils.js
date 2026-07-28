@@ -89,8 +89,20 @@
       .slice(0, 150);
   }
 
-  /** Deriva un nombre de archivo razonable a partir de la URL del video y, si hace falta, del título de la página. */
+  /**
+   * Deriva un nombre de archivo para el video. Prioriza el título de la
+   * página/video (`fallbackBase`) sobre el nombre que trae la URL — la
+   * mayoría de streams usan nombres de archivo genéricos en el CDN
+   * ("hls.m3u8", "index-720p", un hash) que no le dicen nada al usuario,
+   * mientras que el título sí identifica el video real.
+   */
   function filenameFromUrl(url, fallbackBase, mime) {
+    const ext = extFromUrl(url) || extFromMime(mime) || 'mp4';
+
+    if (fallbackBase && fallbackBase.trim()) {
+      return `${sanitizeFilename(fallbackBase)}.${ext}`;
+    }
+
     let base = '';
     try {
       const pathname = new URL(url, location.href).pathname;
@@ -98,12 +110,8 @@
     } catch (_err) {
       base = '';
     }
-
-    const ext = extFromUrl(url) || extFromMime(mime) || 'mp4';
     base = base.replace(/\.[a-zA-Z0-9]{2,4}$/, '');
-
-    if (!base) base = sanitizeFilename(fallbackBase || 'video');
-    else base = sanitizeFilename(base);
+    base = sanitizeFilename(base || 'video');
 
     return `${base}.${ext}`;
   }

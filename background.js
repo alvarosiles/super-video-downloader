@@ -70,6 +70,167 @@ chrome.webNavigation.onCommitted.addListener((details) => {
   if (details.frameId === 0) clearTabStreams(details.tabId);
 });
 
+// ── Menú contextual: lista los videos detectados en la pestaña activa,
+// igual que "Video Download Helper" — no depende de acertar el clic
+// exacto sobre el <video> real, porque muchos sitios lo tapan con un
+// overlay (controles, publicidad) y el contexto "video" nunca se dispara.
+
+const CONTEXT_MENU_ROOT = 'svd-root';
+
+// tabId -> [{ url, filename, downloadable, kind }], combina lo que reporta
+// content.js (DOM) con lo que ve background.js por red (streamsByTab).
+const menuVideosByTab = new Map();
+
+// menuItemId -> { url, kind }, solo para el menú actualmente construido.
+let menuItemMap = new Map();
+
+async function tabVideoList(tabId) {
+  const fromDom = menuVideosByTab.get(tabId) || [];
+  const networkEntries = Array.from(streamsByTab.get(tabId)?.values() || []);
+
+  let fromNetwork = [];
+  if (networkEntries.length > 0) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    fromNetwork = networkEntries.map((s) => ({
+      url: s.url,
+      filename: self.SVDUtils.filenameFromUrl(s.url, tab?.title),
+      downloadable: true,
+      kind: s.kind,
+    }));
+  }
+
+  const byUrl = new Map();
+  for (const v of [...fromDom, ...fromNetwork]) {
+    if (!byUrl.has(v.url)) byUrl.set(v.url, v);
+  }
+  return Array.from(byUrl.values());
+}
+
+function truncateTitle(text, max = 60) {
+  const clean = String(text || 'video');
+  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+}
+
+async function rebuildMenuForTab(tabId) {
+  const videos = await tabVideoList(tabId);
+  menuItemMap = new Map();
+
+  await new Promise((resolve) => chrome.contextMenus.removeAll(resolve));
+
+  if (videos.length === 0) return;
+
+  chrome.contextMenus.create({
+    id: CONTEXT_MENU_ROOT,
+    title: 'Super Video Downloader',
+    contexts: ['all'],
+  });
+
+  videos.forEach((video, index) => {
+    const id = `svd-video-${index}`;
+    const kind = video.kind || streamKind(video.url);
+    const label = kind === 'hls' ? 'HLS' : kind === 'dash' ? 'DASH' : '';
+    menuItemMap.set(id, { url: video.url, kind });
+    chrome.contextMenus.create({
+      id,
+      parentId: CONTEXT_MENU_ROOT,
+      title: label ? `${truncateTitle(video.filename)} (${label})` : truncateTitle(video.filename),
+      contexts: ['all'],
+    });
+  });
+}
+
+async function refreshMenuIfActiveTab(tabId) {
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (activeTab?.id === tabId) await rebuildMenuForTab(tabId);
+}
+
+chrome.tabs.onActivated.addListener(({ tabId }) => rebuildMenuForTab(tabId));
+chrome.tabs.onRemoved.addListener((tabId) => menuVideosByTab.delete(tabId));
+chrome.webNavigation.onCommitted.addListener((details) => {
+  if (details.frameId === 0) {
+    menuVideosByTab.delete(details.tabId);
+    refreshMenuIfActiveTab(details.tabId);
+  }
+});
+
+function siteFromTab(tab) {
+  try {
+    return new URL(tab?.url || '').hostname.replace(/^www\./i, '');
+  } catch (_err) {
+    return '';
+  }
+}
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  const entry = menuItemMap.get(String(info.menuItemId));
+  if (!entry) return;
+  const { url, kind } = entry;
+  if (!url) return;
+
+  if (url.startsWith('blob:')) {
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: 'assets/icons/icon128.png',
+      title: 'Super Video Downloader',
+      message: 'Este video usa un reproductor que oculta la URL real. Abre el popup de la extensión para descargarlo.',
+    });
+    return;
+  }
+
+  const site = siteFromTab(tab);
+
+  if (kind) {
+    const settings = await self.SVDStorage.getSettings();
+    const headers = { 'User-Agent': navigator.userAgent };
+    if (tab?.url) {
+      headers.Referer = tab.url;
+      try {
+        headers.Origin = new URL(tab.url).origin;
+      } catch (_err) {}
+    }
+    const result = await startWasmDownload({
+      url,
+      filename: self.SVDUtils.filenameFromUrl(url, tab?.title, 'video/mp4').replace(/\.[a-z0-9]{2,5}$/i, '.mp4'),
+      headers,
+      site,
+      settings,
+    });
+    if (!result.ok) {
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'assets/icons/icon128.png',
+        title: 'Super Video Downloader',
+        message: result.error || 'No se pudo descargar el stream.',
+      });
+    }
+    return;
+  }
+
+  const settings = await self.SVDStorage.getSettings();
+  const folder = (settings.downloadFolder || '').replace(/^\/+|\/+$/g, '');
+  const filename = self.SVDUtils.filenameFromUrl(url, tab?.title);
+
+  chrome.downloads.download(
+    {
+      url,
+      filename: folder ? `${folder}/${filename}` : filename,
+      saveAs: !settings.autoName,
+    },
+    (downloadId) => {
+      if (chrome.runtime.lastError || downloadId === undefined) {
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: 'assets/icons/icon128.png',
+          title: 'Super Video Downloader',
+          message: chrome.runtime.lastError?.message || 'No se pudo iniciar la descarga.',
+        });
+        return;
+      }
+      pendingDownloads.set(downloadId, { site, sizeHint: 0 });
+    }
+  );
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message.type !== 'string') return false;
 
@@ -81,6 +242,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else {
       chrome.action.setBadgeText({ tabId, text: '' });
     }
+    menuVideosByTab.set(tabId, Array.isArray(message.videos) ? message.videos : []);
+    refreshMenuIfActiveTab(tabId);
     return false;
   }
 

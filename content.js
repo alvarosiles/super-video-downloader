@@ -44,11 +44,22 @@
     );
   }
 
-  function reportBadge() {
-    const count = scan().length;
-    chrome.runtime.sendMessage({ type: 'SVD_BADGE_COUNT', count }, () => {
-      void chrome.runtime.lastError;
+  /** Lista compacta (sin tamaños, sin red) para que background.js arme el menú contextual. */
+  function compactVideoList(items) {
+    return items.map((item) => {
+      const variant = item.variants[item.selectedIndex] || item.variants[0];
+      return { url: variant.url, filename: item.filename, downloadable: variant.downloadable };
     });
+  }
+
+  function reportBadge() {
+    const items = scan();
+    chrome.runtime.sendMessage(
+      { type: 'SVD_BADGE_COUNT', count: items.length, videos: compactVideoList(items) },
+      () => {
+        void chrome.runtime.lastError;
+      }
+    );
   }
 
   async function setupAutoRefresh() {

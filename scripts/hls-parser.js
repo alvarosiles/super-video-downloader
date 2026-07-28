@@ -74,3 +74,4 @@
 
   root.SVDHls = { parseMasterPlaylist, parseMediaPlaylist, isMasterPlaylist, resolveUrl };
 })(typeof self !== 'undefined' ? self : this);
+// C:\Users\TU_USUARIO\AppData\Local\Google\Chrome\User Data\Default\Extensions\lmjnegcaeklhafolokijcfjliaokphfk\
